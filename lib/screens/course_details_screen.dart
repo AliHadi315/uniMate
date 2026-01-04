@@ -174,7 +174,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
               Padding(
                 padding: const EdgeInsets.only(top: 8.0),
                 child: Text(
-                  'Tip: paste a local file path (simple version)',
+                  'Tip: paste a local file path',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                 ),
               ),
