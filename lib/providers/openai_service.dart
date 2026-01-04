@@ -3,9 +3,8 @@ import 'package:http/http.dart' as http;
 import 'package:unimate/models/file_attachment.dart';
 
 class OpenAIService {
-  final String apiKey;
-
-  OpenAIService({required this.apiKey});
+  final String apiKey; 
+  OpenAIService() : apiKey = dotenv.env['API_KEY'] ?? '';
 
   Future<String> getReply({
     required List<Map<String, String>> messages,
