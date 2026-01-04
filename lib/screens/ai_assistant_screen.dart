@@ -13,9 +13,10 @@ class AiAssistantScreen extends StatefulWidget {
 
 class _AiAssistantScreenState extends State<AiAssistantScreen> {
   //put the api key here
-  static const _apiKey =
-      'api_key_in_here'; // Replace with the actual API key men account ali
-  late final OpenAIService _openai = OpenAIService(apiKey: _apiKey);
+  //static const _apiKey ='api_key_in_here';
+  //late final OpenAIService _openai = OpenAIService(apiKey: _apiKey);
+  // Replace with the actual API key men account ali
+  late final OpenAIService _openai = OpenAIService();
 
   final TextEditingController _controller = TextEditingController();
   final List<Map<String, String>> _messages = [];
