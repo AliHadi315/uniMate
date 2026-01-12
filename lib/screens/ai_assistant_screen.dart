@@ -12,24 +12,13 @@ class AiAssistantScreen extends StatefulWidget {
 }
 
 class _AiAssistantScreenState extends State<AiAssistantScreen> {
-  //put the api key here
-<<<<<<< HEAD
-  //static const _apiKey ='api_key_in_here';
-  //late final OpenAIService _openai = OpenAIService(apiKey: _apiKey);
-  // Replace with the actual API key men account ali
   late final GeminiService _openai = GeminiService();
-=======
-  //static const _apiKey ='api_key_in_here'; 
-  //late final OpenAIService _openai = OpenAIService(apiKey: _apiKey);
->>>>>>> 7886f20195ed67542cb5442a082083b50eb3e6a2
 
-  // Replace with the actual API key men account ali
-  late final OpenAIService _openai = OpenAIService();
-  
   final TextEditingController _controller = TextEditingController();
   final List<Map<String, String>> _messages = [];
   final List<FileAttachment> _attachments = [];
   bool _loading = false;
+
   // in-memory chat session history
   final List<List<Map<String, String>>> _sessions = [];
   final List<String> _sessionTitles = [];
