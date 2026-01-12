@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:unimate/providers/openai_service.dart';
+import 'package:unimate/providers/gemini_service.dart';
 import 'dart:io';
 import '../models/file_attachment.dart';
 
@@ -16,7 +16,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   //static const _apiKey ='api_key_in_here';
   //late final OpenAIService _openai = OpenAIService(apiKey: _apiKey);
   // Replace with the actual API key men account ali
-  late final OpenAIService _openai = OpenAIService();
+  late final GeminiService _openai = GeminiService();
 
   final TextEditingController _controller = TextEditingController();
   final List<Map<String, String>> _messages = [];
