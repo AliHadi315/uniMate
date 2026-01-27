@@ -2,8 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:unimate/providers/gemini_service.dart';
 import 'dart:io';
+import 'dart:math';
 import '../models/file_attachment.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 
+// AI Assistant screen with chat interface
+// allowing users to ask questions about their courses and tasks
+// and attach relevant files for context
+// Uses GeminiService to get AI-generated replies
+// Can Save and load chat sessions
 class AiAssistantScreen extends StatefulWidget {
   const AiAssistantScreen({super.key});
 
@@ -11,16 +19,18 @@ class AiAssistantScreen extends StatefulWidget {
   State<AiAssistantScreen> createState() => _AiAssistantScreenState();
 }
 
-class _AiAssistantScreenState extends State<AiAssistantScreen> {
+class _AiAssistantScreenState extends State<AiAssistantScreen>
+    with TickerProviderStateMixin {
   late final GeminiService _openai = GeminiService();
+  late final ScrollController _scrollController = ScrollController();
 
   final TextEditingController _controller = TextEditingController();
-  final List<Map<String, String>> _messages = [];
+  final List<Map<String, dynamic>> _messages = [];
   final List<FileAttachment> _attachments = [];
   bool _loading = false;
 
   // in-memory chat session history
-  final List<List<Map<String, String>>> _sessions = [];
+  final List<List<Map<String, dynamic>>> _sessions = [];
   final List<String> _sessionTitles = [];
   final TextEditingController _sessionTitleController = TextEditingController();
 
@@ -33,6 +43,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   void dispose() {
     _controller.dispose();
     _sessionTitleController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -41,20 +52,41 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     if (text.isEmpty || _loading) return;
 
     setState(() {
-      _messages.add({"role": "user", "content": text});
+      _messages.add({
+        "role": "user",
+        "content": text,
+        "timestamp": DateTime.now(),
+      });
       _controller.clear();
       _loading = true;
     });
 
+    _scrollToBottom();
+
     try {
+      // Convert messages to API format (string keys and values only)
+      final messagesForApi = _messages
+          .map(
+            (m) => {
+              "role": m["role"] as String,
+              "content": m["content"] as String,
+            },
+          )
+          .toList();
+
       final reply = await _openai.getReply(
-        messages: _messages,
+        messages: messagesForApi,
         attachments: _attachments.isNotEmpty ? _attachments : null,
       );
       setState(() {
-        _messages.add({"role": "assistant", "content": reply});
+        _messages.add({
+          "role": "assistant",
+          "content": reply,
+          "timestamp": DateTime.now(),
+        });
         _attachments.clear(); // Clear attachments after sending
       });
+      _scrollToBottom();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -64,6 +96,22 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  String _formatTime(DateTime dateTime) {
+    return DateFormat('HH:mm').format(dateTime);
   }
 
   Future<void> _pickFile() async {
@@ -136,7 +184,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         : _sessionTitleController.text.trim();
 
     // Deep copy messages
-    final copied = _messages.map((m) => Map<String, String>.from(m)).toList();
+    final copied = _messages.map((m) => Map<String, dynamic>.from(m)).toList();
     setState(() {
       _sessions.add(copied);
       _sessionTitles.add(title);
@@ -152,8 +200,9 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     setState(() {
       _messages
         ..clear()
-        ..addAll(_sessions[index].map((m) => Map<String, String>.from(m)));
+        ..addAll(_sessions[index].map((m) => Map<String, dynamic>.from(m)));
     });
+    _scrollToBottom();
     Navigator.of(context).pop();
   }
 
@@ -183,10 +232,174 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     );
   }
 
+  Widget _buildAnimatedTypingIndicator() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('AI is typing', style: TextStyle(fontSize: 12)),
+          const SizedBox(width: 4),
+          ...List.generate(3, (index) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2.0),
+              child: TweenAnimationBuilder(
+                tween: Tween<double>(begin: 0, end: 1),
+                duration: Duration(milliseconds: 600 + (index * 200)),
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: (sin(value * 3.14159 * 2) + 1) / 2,
+                    child: child,
+                  );
+                },
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[600],
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(
+    int index,
+    Map<String, dynamic> message,
+    bool isUser,
+  ) {
+    final content = message["content"] ?? '';
+    final timestamp = message["timestamp"] as DateTime?;
+
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+            CurvedAnimation(
+              parent: AlwaysStoppedAnimation(1.0),
+              curve: Curves.elasticOut,
+            ),
+          ),
+          child: GestureDetector(
+            onLongPress: () {
+              showMenu(
+                context: context,
+                position: RelativeRect.fromLTRB(100, 100, 0, 0),
+                items: [
+                  PopupMenuItem(
+                    child: const Text('Copy'),
+                    onTap: () {
+                      final data = ClipboardData(text: content);
+                      Clipboard.setData(data);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Message copied!'),
+                          duration: Duration(milliseconds: 800),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              );
+            },
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 2),
+              padding: const EdgeInsets.all(12),
+              constraints: const BoxConstraints(maxWidth: 320),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: Radius.circular(isUser ? 16 : 4),
+                  bottomRight: Radius.circular(isUser ? 4 : 16),
+                ),
+                color: isUser ? Colors.blue.shade400 : Colors.grey.shade300,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    content,
+                    style: TextStyle(
+                      color: isUser ? Colors.white : Colors.black87,
+                      fontSize: 15,
+                    ),
+                  ),
+                  if (timestamp != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _formatTime(timestamp),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isUser ? Colors.white70 : Colors.black54,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('AI Study Assistant')),
+      appBar: AppBar(
+        title: const Text('AI Study Assistant'),
+        elevation: 2,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Clear chat',
+            onPressed: _messages.isEmpty
+                ? null
+                : () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Clear all messages?'),
+                        content: const Text(
+                          'This will remove all current messages.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              setState(() => _messages.clear());
+                              Navigator.pop(ctx);
+                            },
+                            child: const Text(
+                              'Clear',
+                              style: TextStyle(color: Colors.red),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+          ),
+        ],
+      ),
       drawer: Drawer(
         child: SafeArea(
           child: Column(
@@ -265,37 +478,46 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: _messages.length,
-              itemBuilder: (ctx, i) {
-                final m = _messages[i];
-                final isUser = m["role"] == "user";
-                return Align(
-                  alignment: isUser
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    padding: const EdgeInsets.all(12),
-                    constraints: const BoxConstraints(maxWidth: 320),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: isUser
-                          ? Colors.blue.shade100
-                          : Colors.grey.shade200,
+            child: _messages.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 48,
+                          color: Colors.grey[400],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Start a conversation',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Text(m["content"] ?? ''),
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _messages.length,
+                    itemBuilder: (ctx, i) {
+                      final m = _messages[i];
+                      final isUser = m["role"] == "user";
+                      return _buildMessageBubble(i, m, isUser);
+                    },
                   ),
-                );
-              },
-            ),
           ),
           // Display attached files
           if (_attachments.isNotEmpty)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              color: Colors.blue.shade50,
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                border: Border(top: BorderSide(color: Colors.blue.shade200)),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -323,33 +545,42 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
                 ],
               ),
             ),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 6),
-              child: Text('AI is typing...'),
-            ),
+          if (_loading) _buildAnimatedTypingIndicator(),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
             child: Row(
               children: [
                 IconButton(
-                  onPressed: _pickFile,
+                  onPressed: _loading ? null : _pickFile,
                   icon: const Icon(Icons.attach_file),
                   tooltip: 'Attach file',
                 ),
                 Expanded(
                   child: TextField(
                     controller: _controller,
-                    decoration: const InputDecoration(
+                    enabled: !_loading,
+                    maxLines: null,
+                    textInputAction: TextInputAction.send,
+                    decoration: InputDecoration(
                       hintText:
                           'Ask about your course, tasks, or study tips...',
-                      border: OutlineInputBorder(),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
                     onSubmitted: (_) => _send(),
                   ),
                 ),
                 const SizedBox(width: 10),
-                IconButton(onPressed: _send, icon: const Icon(Icons.send)),
+                FloatingActionButton(
+                  mini: true,
+                  onPressed: _loading ? null : _send,
+                  child: const Icon(Icons.send),
+                ),
               ],
             ),
           ),

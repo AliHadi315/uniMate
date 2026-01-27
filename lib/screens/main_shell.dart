@@ -5,6 +5,7 @@ import 'courses_screen.dart';
 import 'statistics_screen.dart';
 import 'ai_assistant_screen.dart';
 
+// The main shell handeles the bottom navigation and page switching
 class MainShell extends StatefulWidget {
   const MainShell({super.key, required this.initialCourses});
   final List<Course> initialCourses;

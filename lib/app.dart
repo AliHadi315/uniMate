@@ -6,6 +6,8 @@ import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
 import 'providers/auth_provider.dart';
 
+// The main app widget
+// sets up theme, routes, and initial screen
 class UniMateApp extends StatelessWidget {
   const UniMateApp({super.key, required this.initialCourses});
   final List<Course> initialCourses;

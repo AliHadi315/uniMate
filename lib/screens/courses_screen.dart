@@ -5,6 +5,8 @@ import '../db/course_storage.dart';
 import '../db/task_storage.dart';
 import 'course_details_screen.dart';
 
+// Screen to display and manage the list of courses
+// Allows adding, editing, and deleting courses
 class CoursesScreen extends StatefulWidget {
   const CoursesScreen({super.key, required this.courses});
   final List<Course> courses;
@@ -17,7 +19,6 @@ class _CoursesScreenState extends State<CoursesScreen> {
   static const blue = Color(0xFF2563EB);
 
   late List<Course> _coursesList;
-
   final _nameCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   final _instCtrl = TextEditingController();

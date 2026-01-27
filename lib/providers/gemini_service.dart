@@ -8,9 +8,6 @@ class GeminiService {
 
   GeminiService() : apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
 
-  /// Gemini text generation using models.generateContent.
-  /// Docs: POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
-  /// Auth: x-goog-api-key header
   Future<String> getReply({
     required List<Map<String, String>> messages,
     String model = 'gemini-2.5-flash',
@@ -20,7 +17,7 @@ class GeminiService {
       return 'Gemini API key is empty.';
     }
 
-    // Build a single prompt string (same approach you used with OpenAI).
+    // Build a single prompt string
     final prompt = messages
         .map((m) {
           final role = m["role"] ?? "user";
@@ -31,9 +28,9 @@ class GeminiService {
 
     var finalPrompt = prompt;
 
-    // Attachments handling (same logic you already had):
+    // Attachments handling
     // - Read .txt content
-    // - For others, just list them (not parsed)
+    // - For others, just list them
     if (attachments != null && attachments.isNotEmpty) {
       finalPrompt += '\n\nAttached files:\n';
       for (final a in attachments) {
@@ -50,12 +47,10 @@ class GeminiService {
       }
     }
 
-    // Gemini generateContent endpoint
     final uri = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
     );
 
-    // Request body: contents -> parts -> text
     final body = {
       "contents": [
         {
@@ -79,7 +74,6 @@ class GeminiService {
 
     final json = jsonDecode(res.body);
 
-    // Response: candidates[0].content.parts[*].text
     final candidates = (json['candidates'] as List?) ?? [];
     if (candidates.isEmpty) return '(No candidates returned)';
 

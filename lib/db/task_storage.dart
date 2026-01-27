@@ -40,6 +40,7 @@ Future<int> setTaskCompleted(int taskId, bool completed) async {
   );
 }
 
+//counts only tasks that are not completed
 Future<int> countPendingTasksByCourse(int courseId) async {
   final db = await DatabaseProvider.getDatabase();
 
@@ -52,8 +53,6 @@ Future<int> countPendingTasksByCourse(int courseId) async {
 
   return rows.length;
 }
-
-// counts
 
 Future<int> countAllTasks() async {
   final db = await DatabaseProvider.getDatabase();

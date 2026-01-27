@@ -5,6 +5,8 @@ import '../db/course_storage.dart';
 import '../db/task_storage.dart';
 import '../models/task.dart';
 
+// Dashboard screen showing overview stats and upcoming tasks
+// and the main screen of the app
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -46,7 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             onPressed: () => setState(() {}),
           ),
 
-          // Profile/Login goes here
+          // Profile/Login here
           Consumer<AuthProvider>(
             builder: (context, auth, _) {
               if (auth.isAuthenticated) {

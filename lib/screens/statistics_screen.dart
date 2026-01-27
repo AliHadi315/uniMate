@@ -3,6 +3,9 @@ import '../db/course_storage.dart';
 import '../db/task_storage.dart';
 import '../models/course.dart';
 
+// Statistics screen showing overall and per-course task statistics
+// including total tasks, completed, pending, overdue, and progress bars
+// for overall and per-course completion
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
 

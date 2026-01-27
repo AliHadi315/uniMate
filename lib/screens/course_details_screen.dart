@@ -8,6 +8,9 @@ import '../db/task_storage.dart';
 import '../db/resource_storage.dart';
 import 'task_form_screen.dart';
 
+// Course Details screen showing tasks and resources for a specific course
+// Allows adding, editing, deleting tasks and resources
+// and marking tasks as completed
 class CourseDetailsScreen extends StatefulWidget {
   const CourseDetailsScreen({super.key, required this.course});
   final Course course;

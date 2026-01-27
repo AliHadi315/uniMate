@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+// A frame widget to simulate a phone screen on larger displays
 class PhoneFrame extends StatelessWidget {
   const PhoneFrame({
     super.key,
