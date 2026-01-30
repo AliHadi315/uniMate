@@ -15,6 +15,8 @@ class CoursesScreen extends StatefulWidget {
   State<CoursesScreen> createState() => _CoursesScreenState();
 }
 
+enum CourseSortField { name, code, instructor, semester }
+
 class _CoursesScreenState extends State<CoursesScreen> {
   static const blue = Color(0xFF2563EB);
 
@@ -23,6 +25,13 @@ class _CoursesScreenState extends State<CoursesScreen> {
   final _codeCtrl = TextEditingController();
   final _instCtrl = TextEditingController();
   String _semesterValue = 'Fall 2025';
+
+  // ✅ Option 1: Search/Filter/Sort state
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+  String _semesterFilter = 'All';
+  CourseSortField _sortField = CourseSortField.name;
+  bool _ascending = true;
 
   @override
   void initState() {
@@ -35,12 +44,59 @@ class _CoursesScreenState extends State<CoursesScreen> {
     _nameCtrl.dispose();
     _codeCtrl.dispose();
     _instCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _refresh() async {
     final loaded = await loadCourses();
     setState(() => _coursesList = loaded);
+  }
+
+  List<String> _semesterOptions() {
+    // Use your hard-coded semesters + All
+    return const ['All', 'Fall 2025', 'Spring 2026', 'Summer 2026'];
+  }
+
+  List<Course> _visibleCourses() {
+    final q = _query.trim().toLowerCase();
+
+    final filtered = _coursesList.where((c) {
+      final matchesQuery =
+          q.isEmpty ||
+          c.name.toLowerCase().contains(q) ||
+          c.code.toLowerCase().contains(q) ||
+          c.instructor.toLowerCase().contains(q);
+
+      final matchesSemester =
+          _semesterFilter == 'All' || c.semester == _semesterFilter;
+
+      return matchesQuery && matchesSemester;
+    }).toList();
+
+    int cmpString(String a, String b) =>
+        a.toLowerCase().compareTo(b.toLowerCase());
+
+    filtered.sort((a, b) {
+      int res = 0;
+      switch (_sortField) {
+        case CourseSortField.name:
+          res = cmpString(a.name, b.name);
+          break;
+        case CourseSortField.code:
+          res = cmpString(a.code, b.code);
+          break;
+        case CourseSortField.instructor:
+          res = cmpString(a.instructor, b.instructor);
+          break;
+        case CourseSortField.semester:
+          res = cmpString(a.semester, b.semester);
+          break;
+      }
+      return _ascending ? res : -res;
+    });
+
+    return filtered;
   }
 
   void _openCourseDialog({Course? existing}) {
@@ -164,8 +220,165 @@ class _CoursesScreenState extends State<CoursesScreen> {
     );
   }
 
+  InputDecoration _compactDeco({
+    required String hint,
+    IconData? icon,
+    Widget? suffix,
+  }) {
+    return InputDecoration(
+      hintText: hint,
+      prefixIcon: icon == null ? null : Icon(icon, size: 18),
+      suffixIcon: suffix,
+      isDense: true,
+      filled: true,
+      fillColor: const Color(0xFFF3F4F6), // light gray
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+    );
+  }
+
+  Widget _searchBar() {
+    return SizedBox(
+      height: 42,
+      child: TextField(
+        controller: _searchCtrl,
+        onChanged: (v) => setState(() => _query = v),
+        decoration: _compactDeco(
+          hint: 'Search courses…',
+          icon: Icons.search,
+          suffix: _query.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    setState(() => _query = '');
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _controls() {
+    return Row(
+      children: [
+        // Semester (small)
+        Expanded(
+          child: SizedBox(
+            height: 42,
+            child: DropdownButtonFormField<String>(
+              value: _semesterFilter,
+              isExpanded: true,
+              decoration: _compactDeco(hint: 'Semester', icon: Icons.school),
+              items: _semesterOptions()
+                  .map(
+                    (s) => DropdownMenuItem(
+                      value: s,
+                      child: Text(
+                        s,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) => setState(() => _semesterFilter = v ?? 'All'),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+
+        // Sort (small)
+        Expanded(
+          child: SizedBox(
+            height: 42,
+            child: DropdownButtonFormField<CourseSortField>(
+              value: _sortField,
+              isExpanded: true,
+              decoration: _compactDeco(hint: 'Sort', icon: Icons.sort),
+              items: const [
+                DropdownMenuItem(
+                  value: CourseSortField.name,
+                  child: Text('Name'),
+                ),
+                DropdownMenuItem(
+                  value: CourseSortField.code,
+                  child: Text('Code'),
+                ),
+                DropdownMenuItem(
+                  value: CourseSortField.instructor,
+                  child: Text('Instructor'),
+                ),
+                DropdownMenuItem(
+                  value: CourseSortField.semester,
+                  child: Text('Semester'),
+                ),
+              ],
+              onChanged: (v) =>
+                  setState(() => _sortField = v ?? CourseSortField.name),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+
+        // Asc/Desc toggle (pretty)
+        SizedBox(
+          height: 42,
+          width: 42,
+          child: Material(
+            color: const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() => _ascending = !_ascending),
+              child: Icon(
+                _ascending ? Icons.arrow_upward : Icons.arrow_downward,
+                size: 18,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+
+        // Reset (icon only)
+        SizedBox(
+          height: 42,
+          width: 42,
+          child: Material(
+            color: const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () {
+                _searchCtrl.clear();
+                setState(() {
+                  _query = '';
+                  _semesterFilter = 'All';
+                  _sortField = CourseSortField.name;
+                  _ascending = true;
+                });
+              },
+              child: const Icon(
+                Icons.restart_alt,
+                size: 20,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final visible = _visibleCourses();
+
     return Scaffold(
       floatingActionButton: FloatingActionButton(
         onPressed: () => _openCourseDialog(),
@@ -195,18 +408,24 @@ class _CoursesScreenState extends State<CoursesScreen> {
             ),
             const SizedBox(height: 14),
 
+            // ✅ Search + controls
+            _searchBar(),
+            const SizedBox(height: 10),
+            _controls(),
+            const SizedBox(height: 14),
+
             Expanded(
-              child: _coursesList.isEmpty
+              child: visible.isEmpty
                   ? Center(
                       child: Text(
-                        'No courses yet.',
+                        'No courses match.',
                         style: TextStyle(color: Colors.grey.shade600),
                       ),
                     )
                   : ListView.builder(
-                      itemCount: _coursesList.length,
+                      itemCount: visible.length,
                       itemBuilder: (ctx, i) {
-                        final course = _coursesList[i];
+                        final course = visible[i];
 
                         return FutureBuilder<int>(
                           future: course.id == null
