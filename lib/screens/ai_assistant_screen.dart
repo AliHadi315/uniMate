@@ -117,23 +117,37 @@ class _AiAssistantScreenState extends State<AiAssistantScreen>
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        allowedExtensions: ['pdf', 'txt', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+        allowedExtensions: [
+          'pdf',
+          'txt',
+          'doc',
+          'docx',
+          'ppt',
+          'pptx',
+          'xls',
+          'xlsx',
+          'jpg',
+          'jpeg',
+          'png',
+          'gif',
+          'mp3',
+          'mp4',
+          'wav',
+          'avi',
+        ],
         type: FileType.custom,
       );
 
       if (result != null && result.files.single.path != null) {
         final filePath = result.files.single.path!;
         final fileName = result.files.single.name;
-        final fileExtension = fileName.split('.').last.toLowerCase();
-
         final file = File(filePath);
 
-        // Check file size (max 10MB)
-        final fileSize = await file.length();
-        if (fileSize > 10 * 1024 * 1024) {
+        // Check if file exists and is readable
+        if (!await file.exists()) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('File size must be less than 10MB')),
+              const SnackBar(content: Text('File does not exist')),
             );
           }
           return;
@@ -143,17 +157,53 @@ class _AiAssistantScreenState extends State<AiAssistantScreen>
           fileName: fileName,
           filePath: filePath,
           file: file,
-          fileType: fileExtension,
+          fileType: fileName.split('.').last.toLowerCase(),
         );
+
+        // Check file size (max 10MB)
+        if (attachment.fileSizeBytes > 10 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('File size must be less than 10MB')),
+            );
+          }
+          return;
+        }
+
+        // Check if supported type
+        if (!attachment.isSupportedType()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Unsupported file type')),
+            );
+          }
+          return;
+        }
+
+        // Check if readable
+        if (!await attachment.isReadable()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('File is not readable or corrupted'),
+              ),
+            );
+          }
+          return;
+        }
 
         setState(() {
           _attachments.add(attachment);
         });
 
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('File attached: $fileName')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'File attached: $fileName (${attachment.getFormattedFileSize()})',
+              ),
+            ),
+          );
         }
       }
     } catch (e) {
@@ -532,13 +582,36 @@ class _AiAssistantScreenState extends State<AiAssistantScreen>
                     children: List.generate(_attachments.length, (index) {
                       final attachment = _attachments[index];
                       return Chip(
-                        label: Text(
-                          attachment.fileName,
-                          overflow: TextOverflow.ellipsis,
+                        avatar: Icon(
+                          attachment.getFileIcon(),
+                          size: 18,
+                          color: Colors.blue.shade700,
+                        ),
+                        label: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              attachment.fileName,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            Text(
+                              attachment.getFormattedFileSize(),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
                         ),
                         onDeleted: () => _removeAttachment(index),
                         deleteIcon: const Icon(Icons.close, size: 18),
-                        backgroundColor: Colors.blue.shade100,
+                        backgroundColor: Colors.blue.shade50,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                       );
                     }),
                   ),

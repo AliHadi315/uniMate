@@ -26,7 +26,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
   final _instCtrl = TextEditingController();
   String _semesterValue = 'Fall 2025';
 
-  // ✅ Option 1: Search/Filter/Sort state
+  // Filter/Sort state
   final _searchCtrl = TextEditingController();
   String _query = '';
   String _semesterFilter = 'All';
@@ -54,7 +54,6 @@ class _CoursesScreenState extends State<CoursesScreen> {
   }
 
   List<String> _semesterOptions() {
-    // Use your hard-coded semesters + All
     return const ['All', 'Fall 2025', 'Spring 2026', 'Summer 2026'];
   }
 
@@ -266,12 +265,12 @@ class _CoursesScreenState extends State<CoursesScreen> {
   Widget _controls() {
     return Row(
       children: [
-        // Semester (small)
+        // Semester
         Expanded(
           child: SizedBox(
             height: 42,
             child: DropdownButtonFormField<String>(
-              value: _semesterFilter,
+              initialValue: _semesterFilter,
               isExpanded: true,
               decoration: _compactDeco(hint: 'Semester', icon: Icons.school),
               items: _semesterOptions()
@@ -292,12 +291,12 @@ class _CoursesScreenState extends State<CoursesScreen> {
         ),
         const SizedBox(width: 10),
 
-        // Sort (small)
+        // Sort
         Expanded(
           child: SizedBox(
             height: 42,
             child: DropdownButtonFormField<CourseSortField>(
-              value: _sortField,
+              initialValue: _sortField,
               isExpanded: true,
               decoration: _compactDeco(hint: 'Sort', icon: Icons.sort),
               items: const [
@@ -325,7 +324,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
         ),
         const SizedBox(width: 10),
 
-        // Asc/Desc toggle (pretty)
+        // Asc/Desc toggle
         SizedBox(
           height: 42,
           width: 42,
@@ -345,7 +344,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
         ),
         const SizedBox(width: 10),
 
-        // Reset (icon only)
+        // Reset
         SizedBox(
           height: 42,
           width: 42,
@@ -408,7 +407,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
             ),
             const SizedBox(height: 14),
 
-            // ✅ Search + controls
+            // Search + controls
             _searchBar(),
             const SizedBox(height: 10),
             _controls(),

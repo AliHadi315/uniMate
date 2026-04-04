@@ -38,7 +38,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
   final _resValueCtrl = TextEditingController();
   String _resType = 'Note';
 
-  // ✅ Filter/Sort state (NO SEARCH)
+  // ✅ Filter/Sort state
   TaskFilter _taskFilter = TaskFilter.all;
   TaskSortField _taskSort = TaskSortField.dueDate;
   bool _taskAsc = true;
@@ -402,7 +402,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
           child: SizedBox(
             height: 42,
             child: DropdownButtonFormField<TaskFilter>(
-              value: _taskFilter,
+              initialValue: _taskFilter,
               isExpanded: true,
               decoration: _compactDeco(hint: 'Filter', icon: Icons.filter_list),
               items: const [
@@ -435,7 +435,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
           child: SizedBox(
             height: 42,
             child: DropdownButtonFormField<TaskSortField>(
-              value: _taskSort,
+              initialValue: _taskSort,
               isExpanded: true,
               decoration: _compactDeco(hint: 'Sort', icon: Icons.sort),
               items: const [
@@ -488,7 +488,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
           child: SizedBox(
             height: 42,
             child: DropdownButtonFormField<ResourceTypeFilter>(
-              value: _resourceTypeFilter,
+              initialValue: _resourceTypeFilter,
               isExpanded: true,
               decoration: _compactDeco(hint: 'Type', icon: Icons.filter_list),
               items: const [
@@ -520,7 +520,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
           child: SizedBox(
             height: 42,
             child: DropdownButtonFormField<ResourceSortField>(
-              value: _resourceSort,
+              initialValue: _resourceSort,
               isExpanded: true,
               decoration: _compactDeco(hint: 'Sort', icon: Icons.sort),
               items: const [

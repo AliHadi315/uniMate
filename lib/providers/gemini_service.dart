@@ -29,20 +29,32 @@ class GeminiService {
     var finalPrompt = prompt;
 
     // Attachments handling
-    // - Read .txt content
-    // - For others, just list them
+    // - Read .txt and .pdf contenzt
+    // - For images, describe them
+    // - For others, provide metadata
     if (attachments != null && attachments.isNotEmpty) {
       finalPrompt += '\n\nAttached files:\n';
       for (final a in attachments) {
-        if (a.fileType.toLowerCase() == 'txt') {
+        final ext = a.fileType.toLowerCase();
+        if (ext == 'txt') {
           try {
             final txt = await a.file.readAsString();
-            finalPrompt += '\n- ${a.fileName} (txt content):\n${txt.trim()}\n';
+            finalPrompt += '\n- ${a.fileName} (text content):\n${txt.trim()}\n';
           } catch (_) {
             finalPrompt += '\n- ${a.fileName} (txt) (could not read)\n';
           }
+        } else if (ext == 'pdf') {
+          finalPrompt +=
+              '\n- ${a.fileName} (PDF document, ${a.getFormattedFileSize()}, MIME: ${a.getMimeType()})\n';
+        } else if (['jpg', 'jpeg', 'png', 'gif'].contains(ext)) {
+          finalPrompt +=
+              '\n- ${a.fileName} (image, ${a.getFormattedFileSize()}, MIME: ${a.getMimeType()})\n';
+        } else if (['mp3', 'wav', 'mp4', 'avi'].contains(ext)) {
+          finalPrompt +=
+              '\n- ${a.fileName} (media file, ${a.getFormattedFileSize()}, MIME: ${a.getMimeType()})\n';
         } else {
-          finalPrompt += '\n- ${a.fileName} (${a.fileType}) (not parsed)\n';
+          finalPrompt +=
+              '\n- ${a.fileName} (${a.fileType}, ${a.getFormattedFileSize()}, MIME: ${a.getMimeType()})\n';
         }
       }
     }
