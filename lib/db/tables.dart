@@ -1,9 +1,10 @@
 class DbTables {
   static const dbName = 'unimate.db';
-  static const dbVersion = 1;
+  static const dbVersion = 2;
   static const courses = 'courses';
   static const tasks = 'tasks';
   static const resources = 'resources';
+  static const users = 'users';
 
   static const createCourses =
       '''
@@ -39,6 +40,18 @@ class DbTables {
     type TEXT NOT NULL,
     value TEXT NOT NULL,
     FOREIGN KEY(courseId) REFERENCES $courses(id) ON DELETE CASCADE
+  );
+  ''';
+
+  static const createUsers =
+      '''
+  CREATE TABLE $users(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fullName TEXT NOT NULL,
+    universityName TEXT NOT NULL,
+    universityId TEXT NOT NULL UNIQUE,
+    country TEXT NOT NULL,
+    password TEXT NOT NULL
   );
   ''';
 }

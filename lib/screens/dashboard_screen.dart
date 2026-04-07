@@ -15,6 +15,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  late Future<Map<String, Object>> _future;
+
   Future<Map<String, Object>> _loadDashboard() async {
     final courses = await loadCourses();
     final totalCourses = courses.length;
@@ -37,6 +39,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _future = _loadDashboard();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -45,7 +53,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
-            onPressed: () => setState(() {}),
+            onPressed: () => setState(() => _future = _loadDashboard()),
           ),
 
           // Profile/Login here
@@ -87,7 +95,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
       body: FutureBuilder<Map<String, Object>>(
-        future: _loadDashboard(),
+        future: _future,
         builder: (ctx, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());

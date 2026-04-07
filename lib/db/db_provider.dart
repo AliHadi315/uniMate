@@ -21,6 +21,12 @@ class DatabaseProvider {
         await db.execute(DbTables.createCourses);
         await db.execute(DbTables.createTasks);
         await db.execute(DbTables.createResources);
+        await db.execute(DbTables.createUsers);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(DbTables.createUsers);
+        }
       },
     );
 

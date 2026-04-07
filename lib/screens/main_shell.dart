@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../models/course.dart';
 import 'dashboard_screen.dart';
 import 'courses_screen.dart';
 import 'statistics_screen.dart';
@@ -7,8 +6,7 @@ import 'ai_assistant_screen.dart';
 
 // The main shell handeles the bottom navigation and page switching
 class MainShell extends StatefulWidget {
-  const MainShell({super.key, required this.initialCourses});
-  final List<Course> initialCourses;
+  const MainShell({super.key});
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -21,7 +19,7 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final pages = [
       const DashboardScreen(),
-      CoursesScreen(courses: widget.initialCourses),
+      const CoursesScreen(),
       const StatisticsScreen(),
       const AiAssistantScreen(),
     ];

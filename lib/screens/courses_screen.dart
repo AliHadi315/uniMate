@@ -8,8 +8,7 @@ import 'course_details_screen.dart';
 // Screen to display and manage the list of courses
 // Allows adding, editing, and deleting courses
 class CoursesScreen extends StatefulWidget {
-  const CoursesScreen({super.key, required this.courses});
-  final List<Course> courses;
+  const CoursesScreen({super.key});
 
   @override
   State<CoursesScreen> createState() => _CoursesScreenState();
@@ -20,7 +19,7 @@ enum CourseSortField { name, code, instructor, semester }
 class _CoursesScreenState extends State<CoursesScreen> {
   static const blue = Color(0xFF2563EB);
 
-  late List<Course> _coursesList;
+  List<Course> _coursesList = [];
   final _nameCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   final _instCtrl = TextEditingController();
@@ -36,7 +35,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
   @override
   void initState() {
     super.initState();
-    _coursesList = widget.courses;
+    _refresh();
   }
 
   @override
@@ -230,7 +229,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
       suffixIcon: suffix,
       isDense: true,
       filled: true,
-      fillColor: const Color(0xFFF3F4F6), // light gray
+      fillColor: const Color(0xFFF3F4F6),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),

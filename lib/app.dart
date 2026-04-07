@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'models/course.dart';
 import 'screens/main_shell.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
@@ -9,8 +8,7 @@ import 'providers/auth_provider.dart';
 // The main app widget
 // sets up theme, routes, and initial screen
 class UniMateApp extends StatelessWidget {
-  const UniMateApp({super.key, required this.initialCourses});
-  final List<Course> initialCourses;
+  const UniMateApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +67,7 @@ class UniMateApp extends StatelessWidget {
           '/login': (_) => const LoginScreen(),
           '/signup': (_) => const SignupScreen(),
         },
-        home: MainShell(initialCourses: initialCourses),
+        home: const MainShell(),
       ),
     );
   }

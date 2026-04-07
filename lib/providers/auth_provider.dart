@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../db/user_storage.dart';
 
 class AuthUser {
   final String fullName;
@@ -14,27 +15,19 @@ class AuthUser {
   });
 }
 
-class _StoredUser {
-  final AuthUser user;
-  final String password;
-
-  _StoredUser(this.user, this.password);
-}
-
 class AuthProvider extends ChangeNotifier {
-  final Map<String, _StoredUser> _usersByUniId = {};
   AuthUser? _currentUser;
 
   AuthUser? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
 
-  String? signUp({
+  Future<String?> signUp({
     required String fullName,
     required String universityName,
     required String universityId,
     required String password,
     required String country,
-  }) {
+  }) async {
     if (fullName.trim().isEmpty ||
         universityName.trim().isEmpty ||
         universityId.trim().isEmpty ||
@@ -43,28 +36,45 @@ class AuthProvider extends ChangeNotifier {
       return 'All fields are required.';
     }
 
-    if (_usersByUniId.containsKey(universityId.trim())) {
-      return 'Account with this University ID already exists.';
-    }
+    final error = await insertUser(
+      fullName: fullName,
+      universityName: universityName,
+      universityId: universityId,
+      country: country,
+      password: password,
+    );
 
-    final user = AuthUser(
+    if (error != null) return error;
+
+    _currentUser = AuthUser(
       fullName: fullName.trim(),
       universityName: universityName.trim(),
       universityId: universityId.trim(),
       country: country.trim(),
     );
 
-    _usersByUniId[user.universityId] = _StoredUser(user, password);
-    _currentUser = user;
     notifyListeners();
     return null;
   }
 
-  String? login({required String universityId, required String password}) {
-    final stored = _usersByUniId[universityId.trim()];
-    if (stored == null) return 'No account found for this University ID.';
-    if (stored.password != password) return 'Invalid password.';
-    _currentUser = stored.user;
+  Future<String?> login({
+    required String universityId,
+    required String password,
+  }) async {
+    final row = await findUserByCredentials(
+      universityId: universityId,
+      password: password,
+    );
+
+    if (row == null) return 'Invalid University ID or password.';
+
+    _currentUser = AuthUser(
+      fullName: row['fullName'] as String,
+      universityName: row['universityName'] as String,
+      universityId: row['universityId'] as String,
+      country: row['country'] as String,
+    );
+
     notifyListeners();
     return null;
   }

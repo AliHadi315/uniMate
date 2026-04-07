@@ -34,7 +34,7 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _loading = true);
     final auth = Provider.of<AuthProvider>(context, listen: false);
 
-    final err = auth.signUp(
+    final err = await auth.signUp(
       fullName: _fullNameCtrl.text,
       universityName: _uniNameCtrl.text,
       universityId: _uniIdCtrl.text,

@@ -28,7 +28,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final err = auth.login(
+    final err = await auth.login(
       universityId: _uniIdCtrl.text.trim(),
       password: _passwordCtrl.text,
     );
