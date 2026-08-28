@@ -1,17 +1,25 @@
-import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:unimate/providers/gemini_service.dart';
 import 'dart:io';
-import 'dart:math';
-import '../models/file_attachment.dart';
-import 'package:intl/intl.dart';
-import 'package:flutter/services.dart';
 
-// AI Assistant screen with chat interface
-// allowing users to ask questions about their courses and tasks
-// and attach relevant files for context
-// Uses GeminiService to get AI-generated replies
-// Can Save and load chat sessions
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+
+import '../core/app_date.dart';
+import '../core/app_theme.dart';
+import '../db/chat_storage.dart';
+import '../models/chat.dart';
+import '../models/file_attachment.dart';
+import '../providers/auth_provider.dart';
+import '../providers/gemini_service.dart';
+import '../services/study_context.dart';
+import '../widgets/common.dart';
+
+/// Chat with the study assistant.
+///
+/// Sessions are stored in the database (they used to live only in memory and
+/// vanished on restart), and the assistant is given the student's real course
+/// and task list as context.
 class AiAssistantScreen extends StatefulWidget {
   const AiAssistantScreen({super.key});
 
@@ -19,386 +27,508 @@ class AiAssistantScreen extends StatefulWidget {
   State<AiAssistantScreen> createState() => _AiAssistantScreenState();
 }
 
-class _AiAssistantScreenState extends State<AiAssistantScreen>
-    with TickerProviderStateMixin {
-  late final GeminiService _openai = GeminiService();
-  late final ScrollController _scrollController = ScrollController();
+class _AiAssistantScreenState extends State<AiAssistantScreen> {
+  static const _suggestions = [
+    'What should I work on today?',
+    'Break my next assignment into steps',
+    'Quiz me on my upcoming exam topics',
+    'Draft a revision plan for this week',
+  ];
 
-  final TextEditingController _controller = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [];
+  final _gemini = GeminiService();
+  final _scrollController = ScrollController();
+  final _inputCtrl = TextEditingController();
+  final _inputFocus = FocusNode();
+
+  final List<ChatMessage> _messages = [];
   final List<FileAttachment> _attachments = [];
-  bool _loading = false;
 
-  // in-memory chat session history
-  final List<List<Map<String, dynamic>>> _sessions = [];
-  final List<String> _sessionTitles = [];
-  final TextEditingController _sessionTitleController = TextEditingController();
+  List<ChatSession> _sessions = [];
+  int? _openSessionId;
+  bool _sending = false;
+  bool _useStudyContext = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadSessions());
   }
 
   @override
   void dispose() {
-    _controller.dispose();
-    _sessionTitleController.dispose();
+    _inputCtrl.dispose();
+    _inputFocus.dispose();
     _scrollController.dispose();
+    _gemini.dispose();
     super.dispose();
   }
 
-  Future<void> _send() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _loading) return;
+  int get _userId => context.read<AuthProvider>().userId;
+
+  /// Title of the session currently loaded, or null for an unsaved chat.
+  String? get _openSessionTitle {
+    final id = _openSessionId;
+    if (id == null) return null;
+    for (final session in _sessions) {
+      if (session.id == id) return session.title;
+    }
+    return null;
+  }
+
+  Future<void> _loadSessions() async {
+    try {
+      final sessions = await loadChatSessions(_userId);
+      if (!mounted) return;
+      setState(() => _sessions = sessions);
+    } catch (e) {
+      debugPrint('Could not load chat sessions: $e');
+    }
+  }
+
+  // -------------------------------------------------------------- sending
+
+  Future<void> _send([String? preset]) async {
+    final text = (preset ?? _inputCtrl.text).trim();
+    if (text.isEmpty || _sending) return;
+
+    final userMessage = ChatMessage(
+      role: 'user',
+      content: text,
+      createdAtMillis: DateTime.now().millisecondsSinceEpoch,
+    );
 
     setState(() {
-      _messages.add({
-        "role": "user",
-        "content": text,
-        "timestamp": DateTime.now(),
-      });
-      _controller.clear();
-      _loading = true;
+      _messages.add(userMessage);
+      _inputCtrl.clear();
+      _sending = true;
     });
-
     _scrollToBottom();
 
     try {
-      // Convert messages to API format (string keys and values only)
-      final messagesForApi = _messages
-          .map(
-            (m) => {
-              "role": m["role"] as String,
-              "content": m["content"] as String,
-            },
-          )
-          .toList();
+      final studyContext = _useStudyContext
+          ? await StudyContextBuilder.build(_userId)
+          : null;
 
-      final reply = await _openai.getReply(
-        messages: messagesForApi,
-        attachments: _attachments.isNotEmpty ? _attachments : null,
+      final reply = await _gemini.getReply(
+        messages: _messages,
+        attachments: List.of(_attachments),
+        studyContext: studyContext,
       );
+
+      if (!mounted) return;
       setState(() {
-        _messages.add({
-          "role": "assistant",
-          "content": reply,
-          "timestamp": DateTime.now(),
-        });
-        _attachments.clear(); // Clear attachments after sending
+        _messages.add(
+          ChatMessage(
+            role: 'assistant',
+            content: reply,
+            createdAtMillis: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+        _attachments.clear();
+        _sending = false;
       });
       _scrollToBottom();
+      await _autoSave();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('AI error: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() => _sending = false);
+
+      final message = e is GeminiException ? e.message : 'Unexpected error: $e';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(label: 'Retry', onPressed: () => _send(text)),
+        ),
+      );
+
+      // Drop the message that failed so a retry does not duplicate it.
+      setState(() {
+        if (_messages.isNotEmpty && _messages.last.isUser) _messages.removeLast();
+      });
+    }
+  }
+
+  /// Keeps the open session in sync after each exchange.
+  Future<void> _autoSave() async {
+    final id = _openSessionId;
+    if (id == null || _messages.isEmpty) return;
+
+    try {
+      await updateChatSession(sessionId: id, messages: _messages);
+      await _loadSessions();
+    } catch (e) {
+      debugPrint('Could not autosave the session: $e');
     }
   }
 
   void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+      );
     });
   }
 
-  String _formatTime(DateTime dateTime) {
-    return DateFormat('HH:mm').format(dateTime);
-  }
+  // ----------------------------------------------------------- attachments
 
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        allowedExtensions: [
-          'pdf',
-          'txt',
-          'doc',
-          'docx',
-          'ppt',
-          'pptx',
-          'xls',
-          'xlsx',
-          'jpg',
-          'jpeg',
-          'png',
-          'gif',
-          'mp3',
-          'mp4',
-          'wav',
-          'avi',
-        ],
         type: FileType.custom,
+        allowedExtensions: const [
+          'pdf', 'txt', 'md', 'csv', 'doc', 'docx', 'ppt', 'pptx',
+          'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif',
+        ],
       );
 
-      if (result != null && result.files.single.path != null) {
-        final filePath = result.files.single.path!;
-        final fileName = result.files.single.name;
-        final file = File(filePath);
+      final picked = result?.files.single;
+      final path = picked?.path;
+      if (path == null) return;
 
-        // Check if file exists and is readable
-        if (!await file.exists()) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('File does not exist')),
-            );
-          }
-          return;
-        }
-
-        final attachment = FileAttachment(
-          fileName: fileName,
-          filePath: filePath,
-          file: file,
-          fileType: fileName.split('.').last.toLowerCase(),
-        );
-
-        // Check file size (max 10MB)
-        if (attachment.fileSizeBytes > 10 * 1024 * 1024) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('File size must be less than 10MB')),
-            );
-          }
-          return;
-        }
-
-        // Check if supported type
-        if (!attachment.isSupportedType()) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Unsupported file type')),
-            );
-          }
-          return;
-        }
-
-        // Check if readable
-        if (!await attachment.isReadable()) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('File is not readable or corrupted'),
-              ),
-            );
-          }
-          return;
-        }
-
-        setState(() {
-          _attachments.add(attachment);
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'File attached: $fileName (${attachment.getFormattedFileSize()})',
-              ),
-            ),
-          );
-        }
+      final file = File(path);
+      if (!await file.exists()) {
+        _snack('That file no longer exists.');
+        return;
       }
+
+      final attachment = FileAttachment(
+        fileName: picked!.name,
+        filePath: path,
+        file: file,
+        fileType: picked.name.split('.').last.toLowerCase(),
+      );
+
+      if (attachment.fileSizeBytes > 10 * 1024 * 1024) {
+        _snack('Files must be smaller than 10 MB.');
+        return;
+      }
+      if (!attachment.isSupportedType()) {
+        _snack('That file type is not supported.');
+        return;
+      }
+      if (!await attachment.isReadable()) {
+        _snack('That file could not be read.');
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() => _attachments.add(attachment));
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error picking file: $e')));
-      }
+      _snack('Could not attach the file: $e');
     }
   }
 
-  void _removeAttachment(int index) {
-    setState(() {
-      _attachments.removeAt(index);
-    });
-  }
+  // -------------------------------------------------------------- sessions
 
-  void _saveSession() {
+  Future<void> _saveSessionAs() async {
     if (_messages.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No messages to save')));
+      _snack('There is nothing to save yet.');
       return;
     }
 
-    final title = _sessionTitleController.text.trim().isEmpty
-        ? 'Chat ${_sessions.length + 1}'
-        : _sessionTitleController.text.trim();
+    final firstLine = _messages.first.content.split('\n').first;
+    final suggested = firstLine.length > 40
+        ? '${firstLine.substring(0, 40)}…'
+        : firstLine;
 
-    // Deep copy messages
-    final copied = _messages.map((m) => Map<String, dynamic>.from(m)).toList();
-    setState(() {
-      _sessions.add(copied);
-      _sessionTitles.add(title);
-      _sessionTitleController.clear();
-    });
+    final title = await _promptForTitle(initial: suggested);
+    if (title == null) return;
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Session saved')));
+    try {
+      final id = await saveChatSession(
+        userId: _userId,
+        title: title,
+        messages: _messages,
+      );
+      if (!mounted) return;
+      setState(() => _openSessionId = id);
+      await _loadSessions();
+      _snack('Saved "$title"');
+    } catch (e) {
+      _snack('Could not save the chat: $e');
+    }
   }
 
-  void _loadSession(int index) {
-    setState(() {
-      _messages
-        ..clear()
-        ..addAll(_sessions[index].map((m) => Map<String, dynamic>.from(m)));
-    });
-    _scrollToBottom();
-    Navigator.of(context).pop();
-  }
+  Future<String?> _promptForTitle({required String initial}) async {
+    final ctrl = TextEditingController(text: initial);
 
-  void _deleteSession(int index) {
-    showDialog(
+    final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete session?'),
-        content: const Text('This will remove the saved chat session.'),
+        title: const Text('Save chat'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Title'),
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    ctrl.dispose();
+    if (result == null || result.isEmpty) return null;
+    return result;
+  }
+
+  Future<void> _openSession(ChatSession session) async {
+    try {
+      final messages = await loadChatMessages(session.id!);
+      if (!mounted) return;
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(messages);
+        _openSessionId = session.id;
+        _attachments.clear();
+      });
+      Navigator.of(context).pop();
+      _scrollToBottom();
+    } catch (e) {
+      _snack('Could not open that chat: $e');
+    }
+  }
+
+  Future<void> _deleteSession(ChatSession session) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete chat'),
+        content: Text('Delete "${session.title}"?'),
+        actions: [
           TextButton(
-            onPressed: () {
-              setState(() {
-                _sessions.removeAt(index);
-                _sessionTitles.removeAt(index);
-              });
-              Navigator.pop(ctx);
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.high),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    await deleteChatSession(session.id!);
+    if (!mounted) return;
+    if (_openSessionId == session.id) {
+      setState(() => _openSessionId = null);
+    }
+    await _loadSessions();
+  }
+
+  void _newChat() {
+    setState(() {
+      _messages.clear();
+      _attachments.clear();
+      _openSessionId = null;
+    });
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ------------------------------------------------------------------- ui
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Study assistant',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              _openSessionTitle ?? 'Unsaved chat',
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'New chat',
+            icon: const Icon(Icons.add_comment_outlined),
+            onPressed: _messages.isEmpty ? null : _newChat,
+          ),
+          IconButton(
+            tooltip: 'Save chat',
+            icon: const Icon(Icons.bookmark_add_outlined),
+            onPressed: _messages.isEmpty ? null : _saveSessionAs,
+          ),
+        ],
+      ),
+      endDrawer: _historyDrawer(),
+      body: Column(
+        children: [
+          if (!_gemini.isConfigured) _missingKeyBanner(),
+          Expanded(
+            child: _messages.isEmpty ? _welcome() : _messageList(),
+          ),
+          if (_attachments.isNotEmpty) _attachmentBar(),
+          if (_sending) _typingIndicator(),
+          _composer(),
+        ],
+      ),
+    );
+  }
+
+  Widget _missingKeyBanner() {
+    return Container(
+      width: double.infinity,
+      color: AppTheme.medium.withValues(alpha: 0.14),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Icon(Icons.key_off, size: 18, color: AppTheme.medium),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'No Gemini API key. Add GEMINI_API_KEY to .env and restart to '
+              'use the assistant.',
+              style: TextStyle(fontSize: 12),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAnimatedTypingIndicator() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('AI is typing', style: TextStyle(fontSize: 12)),
-          const SizedBox(width: 4),
-          ...List.generate(3, (index) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2.0),
-              child: TweenAnimationBuilder(
-                tween: Tween<double>(begin: 0, end: 1),
-                duration: Duration(milliseconds: 600 + (index * 200)),
-                builder: (context, value, child) {
-                  return Opacity(
-                    opacity: (sin(value * 3.14159 * 2) + 1) / 2,
-                    child: child,
-                  );
-                },
-                child: Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[600],
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
+  Widget _welcome() {
+    final scheme = Theme.of(context).colorScheme;
+
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        const SizedBox(height: 20),
+        Center(
+          child: Container(
+            height: 64,
+            width: 64,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(Icons.smart_toy, size: 32, color: scheme.primary),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Center(
+          child: Text(
+            'Ask about your coursework',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Center(
+          child: Text(
+            'The assistant can see your courses and open tasks.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ),
+        const SizedBox(height: 22),
+        ..._suggestions.map(
+          (s) => AppTile(
+            onTap: () => _send(s),
+            child: Row(
+              children: [
+                Icon(Icons.bolt, size: 18, color: scheme.primary),
+                const SizedBox(width: 10),
+                Expanded(child: Text(s)),
+                const Icon(Icons.chevron_right, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildMessageBubble(
-    int index,
-    Map<String, dynamic> message,
-    bool isUser,
-  ) {
-    final content = message["content"] ?? '';
-    final timestamp = message["timestamp"] as DateTime?;
+  Widget _messageList() {
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      itemCount: _messages.length,
+      itemBuilder: (ctx, i) => _bubble(_messages[i]),
+    );
+  }
+
+  Widget _bubble(ChatMessage message) {
+    final scheme = Theme.of(context).colorScheme;
+    final isUser = message.isUser;
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.8, end: 1.0).animate(
-            CurvedAnimation(
-              parent: AlwaysStoppedAnimation(1.0),
-              curve: Curves.elasticOut,
-            ),
-          ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 340),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
           child: GestureDetector(
             onLongPress: () {
-              showMenu(
-                context: context,
-                position: RelativeRect.fromLTRB(100, 100, 0, 0),
-                items: [
-                  PopupMenuItem(
-                    child: const Text('Copy'),
-                    onTap: () {
-                      final data = ClipboardData(text: content);
-                      Clipboard.setData(data);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Message copied!'),
-                          duration: Duration(milliseconds: 800),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              );
+              Clipboard.setData(ClipboardData(text: message.content));
+              _snack('Message copied');
             },
             child: Container(
-              margin: const EdgeInsets.only(bottom: 2),
-              padding: const EdgeInsets.all(12),
-              constraints: const BoxConstraints(maxWidth: 320),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 10,
+              ),
               decoration: BoxDecoration(
+                color: isUser
+                    ? scheme.primary
+                    : scheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(16),
                   topRight: const Radius.circular(16),
                   bottomLeft: Radius.circular(isUser ? 16 : 4),
                   bottomRight: Radius.circular(isUser ? 4 : 16),
                 ),
-                color: isUser ? Colors.blue.shade400 : Colors.grey.shade300,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    content,
+                  SelectableText(
+                    message.content,
                     style: TextStyle(
-                      color: isUser ? Colors.white : Colors.black87,
-                      fontSize: 15,
+                      color: isUser ? scheme.onPrimary : scheme.onSurface,
+                      fontSize: 14.5,
+                      height: 1.35,
                     ),
                   ),
-                  if (timestamp != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      _formatTime(timestamp),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isUser ? Colors.white70 : Colors.black54,
-                      ),
+                  const SizedBox(height: 4),
+                  Text(
+                    AppDate.formatTime(message.createdAt),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isUser
+                          ? scheme.onPrimary.withValues(alpha: 0.75)
+                          : scheme.onSurfaceVariant,
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),
@@ -408,256 +538,227 @@ class _AiAssistantScreenState extends State<AiAssistantScreen>
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('AI Study Assistant'),
-        elevation: 2,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: 'Clear chat',
-            onPressed: _messages.isEmpty
-                ? null
-                : () {
-                    showDialog(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Clear all messages?'),
-                        content: const Text(
-                          'This will remove all current messages.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              setState(() => _messages.clear());
-                              Navigator.pop(ctx);
-                            },
-                            child: const Text(
-                              'Clear',
-                              style: TextStyle(color: Colors.red),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+  Widget _typingIndicator() {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            height: 12,
+            width: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: scheme.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Thinking…',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
         ],
       ),
-      drawer: Drawer(
-        child: SafeArea(
-          child: Column(
-            children: [
-              const ListTile(
-                title: Text(
-                  'Chat History',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                child: TextField(
-                  controller: _sessionTitleController,
-                  decoration: const InputDecoration(
-                    hintText: 'Session title (optional)',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _saveSession,
-                        icon: const Icon(Icons.save),
-                        label: const Text('Save Current'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(),
-              Expanded(
-                child: _sessions.isEmpty
-                    ? const Center(child: Text('No saved sessions'))
-                    : ListView.builder(
-                        itemCount: _sessions.length,
-                        itemBuilder: (ctx, i) {
-                          final title = _sessionTitles[i];
-                          // show a small preview: first user message
-                          String preview = '';
-                          for (final m in _sessions[i]) {
-                            if (m['role'] == 'user' &&
-                                (m['content'] ?? '').isNotEmpty) {
-                              preview = m['content'] ?? '';
-                              break;
-                            }
-                          }
-                          return ListTile(
-                            title: Text(title),
-                            subtitle: preview.isNotEmpty
-                                ? Text(
-                                    preview,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  )
-                                : null,
-                            onTap: () => _loadSession(i),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteSession(i),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _messages.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.chat_bubble_outline,
-                          size: 48,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Start a conversation',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _messages.length,
-                    itemBuilder: (ctx, i) {
-                      final m = _messages[i];
-                      final isUser = m["role"] == "user";
-                      return _buildMessageBubble(i, m, isUser);
-                    },
-                  ),
-          ),
-          // Display attached files
-          if (_attachments.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                border: Border(top: BorderSide(color: Colors.blue.shade200)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Attached Files:',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: List.generate(_attachments.length, (index) {
-                      final attachment = _attachments[index];
-                      return Chip(
-                        avatar: Icon(
-                          attachment.getFileIcon(),
-                          size: 18,
-                          color: Colors.blue.shade700,
-                        ),
-                        label: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              attachment.fileName,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            Text(
-                              attachment.getFormattedFileSize(),
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                        onDeleted: () => _removeAttachment(index),
-                        deleteIcon: const Icon(Icons.close, size: 18),
-                        backgroundColor: Colors.blue.shade50,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                      );
-                    }),
-                  ),
-                ],
-              ),
+    );
+  }
+
+  Widget _attachmentBar() {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      color: scheme.primary.withValues(alpha: 0.06),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: List.generate(_attachments.length, (i) {
+          final attachment = _attachments[i];
+          return Chip(
+            avatar: Icon(attachment.getFileIcon(), size: 16),
+            label: Text(
+              '${attachment.fileName} • ${attachment.getFormattedFileSize()}',
+              style: const TextStyle(fontSize: 11),
             ),
-          if (_loading) _buildAnimatedTypingIndicator(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-            child: Row(
+            onDeleted: () => setState(() => _attachments.removeAt(i)),
+            deleteIcon: const Icon(Icons.close, size: 16),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _composer() {
+    final scheme = Theme.of(context).colorScheme;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Tooltip(
+                  message: _useStudyContext
+                      ? 'The assistant can see your courses and tasks'
+                      : 'The assistant answers without your data',
+                  child: FilterChip(
+                    visualDensity: VisualDensity.compact,
+                    avatar: Icon(
+                      _useStudyContext
+                          ? Icons.auto_awesome
+                          : Icons.auto_awesome_outlined,
+                      size: 15,
+                    ),
+                    label: const Text(
+                      'My courses',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    selected: _useStudyContext,
+                    onSelected: (v) => setState(() => _useStudyContext = v),
+                  ),
+                ),
+                const Spacer(),
+                Builder(
+                  builder: (ctx) => TextButton.icon(
+                    onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+                    icon: const Icon(Icons.history, size: 16),
+                    label: Text(
+                      'History (${_sessions.length})',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 IconButton(
-                  onPressed: _loading ? null : _pickFile,
+                  onPressed: _sending ? null : _pickFile,
                   icon: const Icon(Icons.attach_file),
-                  tooltip: 'Attach file',
+                  tooltip: 'Attach a file',
                 ),
                 Expanded(
                   child: TextField(
-                    controller: _controller,
-                    enabled: !_loading,
-                    maxLines: null,
+                    controller: _inputCtrl,
+                    focusNode: _inputFocus,
+                    enabled: !_sending,
+                    minLines: 1,
+                    maxLines: 5,
                     textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
                     decoration: InputDecoration(
-                      hintText:
-                          'Ask about your course, tasks, or study tips...',
+                      hintText: 'Ask about a course, task or topic…',
+                      fillColor: scheme.surfaceContainerHighest,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
                       ),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 12,
                       ),
                     ),
-                    onSubmitted: (_) => _send(),
                   ),
                 ),
-                const SizedBox(width: 10),
-                FloatingActionButton(
-                  mini: true,
-                  onPressed: _loading ? null : _send,
-                  child: const Icon(Icons.send),
+                const SizedBox(width: 8),
+                FloatingActionButton.small(
+                  heroTag: 'ai-send',
+                  onPressed: _sending ? null : () => _send(),
+                  child: const Icon(Icons.send, size: 18),
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _historyDrawer() {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Saved chats',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'New chat',
+                    icon: const Icon(Icons.add),
+                    onPressed: () {
+                      _newChat();
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _sessions.isEmpty
+                  ? const EmptyState(
+                      icon: Icons.forum_outlined,
+                      title: 'No saved chats',
+                      message:
+                          'Use the bookmark button to keep a conversation.',
+                    )
+                  : ListView.builder(
+                      itemCount: _sessions.length,
+                      itemBuilder: (ctx, i) {
+                        final session = _sessions[i];
+                        final isOpen = session.id == _openSessionId;
+
+                        return ListTile(
+                          selected: isOpen,
+                          leading: Icon(
+                            isOpen
+                                ? Icons.chat_bubble
+                                : Icons.chat_bubble_outline,
+                            size: 20,
+                          ),
+                          title: Text(
+                            session.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            AppDate.formatDateTime(session.updatedAt),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          onTap: () => _openSession(session),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 20),
+                            onPressed: () => _deleteSession(session),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
