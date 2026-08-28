@@ -49,6 +49,10 @@ class _MainShellState extends State<MainShell> {
     if (!service.isSupported) return;
 
     try {
+      // Android 13+ will silently drop every reminder until POST_NOTIFICATIONS
+      // is granted. Reminders are on by default, so ask here rather than only
+      // when the user happens to visit Settings.
+      await service.requestPermissions();
       await service.rescheduleAllForUser(auth.userId);
     } catch (_) {
       // Reminders are best-effort; never block the UI on them.

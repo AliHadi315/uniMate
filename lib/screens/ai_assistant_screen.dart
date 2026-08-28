@@ -76,6 +76,10 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   }
 
   Future<void> _loadSessions() async {
+    // Reached from post-frame and post-await callbacks, so the screen may be
+    // gone by now; reading the provider off a defunct element would throw.
+    if (!mounted) return;
+
     try {
       final sessions = await loadChatSessions(_userId);
       if (!mounted) return;
@@ -236,7 +240,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         : firstLine;
 
     final title = await _promptForTitle(initial: suggested);
-    if (title == null) return;
+    if (title == null || !mounted) return;
 
     try {
       final id = await saveChatSession(
