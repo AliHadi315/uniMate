@@ -1,3 +1,5 @@
+import 'package:sqflite/sqflite.dart';
+
 import 'package:unimate/core/password_hasher.dart';
 import 'package:unimate/db/db_provider.dart';
 import 'package:unimate/db/tables.dart';
@@ -47,6 +49,8 @@ Future<InsertUserResult> insertUser({
     'salt': salt,
   });
 
+  await _adoptOrphanCourses(db, rowId);
+
   final rows = await db.query(
     DbTables.users,
     where: 'id = ?',
@@ -54,6 +58,23 @@ Future<InsertUserResult> insertUser({
     limit: 1,
   );
   return InsertUserResult.success(rows.first);
+}
+
+/// Courses created before accounts existed carry `userId = 0`. The migration
+/// hands them to an existing account, but a database upgraded from v1 has no
+/// accounts at all — so the first person to sign up adopts them instead of the
+/// data silently disappearing. Later accounts get nothing.
+Future<void> _adoptOrphanCourses(DatabaseExecutor db, int newUserId) async {
+  final userCount = await db.rawQuery(
+    'SELECT COUNT(*) AS total FROM ${DbTables.users}',
+  );
+  if (((userCount.first['total'] as int?) ?? 0) != 1) return;
+
+  await db.update(
+    DbTables.courses,
+    {'userId': newUserId},
+    where: 'userId = 0',
+  );
 }
 
 /// Returns the user row when the credentials match, null otherwise.

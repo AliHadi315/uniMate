@@ -15,7 +15,7 @@ class DbTables {
 
   static const createUsers =
       '''
-  CREATE TABLE $users(
+  CREATE TABLE IF NOT EXISTS $users(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     fullName TEXT NOT NULL,
     universityName TEXT NOT NULL,
@@ -28,7 +28,7 @@ class DbTables {
 
   static const createCourses =
       '''
-  CREATE TABLE $courses(
+  CREATE TABLE IF NOT EXISTS $courses(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId INTEGER NOT NULL DEFAULT 0,
     name TEXT NOT NULL,
@@ -41,7 +41,7 @@ class DbTables {
 
   static const createTasks =
       '''
-  CREATE TABLE $tasks(
+  CREATE TABLE IF NOT EXISTS $tasks(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     courseId INTEGER NOT NULL,
     title TEXT NOT NULL,
@@ -58,7 +58,7 @@ class DbTables {
 
   static const createResources =
       '''
-  CREATE TABLE $resources(
+  CREATE TABLE IF NOT EXISTS $resources(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     courseId INTEGER NOT NULL,
     title TEXT NOT NULL,
@@ -70,7 +70,7 @@ class DbTables {
 
   static const createChatSessions =
       '''
-  CREATE TABLE $chatSessions(
+  CREATE TABLE IF NOT EXISTS $chatSessions(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId INTEGER NOT NULL DEFAULT 0,
     title TEXT NOT NULL,
@@ -81,7 +81,7 @@ class DbTables {
 
   static const createChatMessages =
       '''
-  CREATE TABLE $chatMessages(
+  CREATE TABLE IF NOT EXISTS $chatMessages(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sessionId INTEGER NOT NULL,
     role TEXT NOT NULL,

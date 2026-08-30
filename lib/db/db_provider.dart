@@ -77,28 +77,33 @@ class DatabaseProvider {
 
     if (oldVersion < 3) {
       // Per-user courses + course colour.
-      await db.execute(
-        'ALTER TABLE ${DbTables.courses} ADD COLUMN userId INTEGER NOT NULL DEFAULT 0',
+      await _addColumn(
+        db,
+        DbTables.courses,
+        'userId',
+        'INTEGER NOT NULL DEFAULT 0',
       );
-      await db.execute(
-        'ALTER TABLE ${DbTables.courses} ADD COLUMN colorValue INTEGER NOT NULL DEFAULT 0',
+      await _addColumn(
+        db,
+        DbTables.courses,
+        'colorValue',
+        'INTEGER NOT NULL DEFAULT 0',
       );
 
       // Richer tasks.
-      await db.execute(
-        "ALTER TABLE ${DbTables.tasks} ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+      await _addColumn(db, DbTables.tasks, 'notes', "TEXT NOT NULL DEFAULT ''");
+      await _addColumn(
+        db,
+        DbTables.tasks,
+        'reminderMinutesBefore',
+        'INTEGER',
       );
-      await db.execute(
-        'ALTER TABLE ${DbTables.tasks} ADD COLUMN reminderMinutesBefore INTEGER',
-      );
-      await db.execute(
-        'ALTER TABLE ${DbTables.tasks} ADD COLUMN completedAtMillis INTEGER',
-      );
+      await _addColumn(db, DbTables.tasks, 'completedAtMillis', 'INTEGER');
 
-      // Salted password hashes.
-      await db.execute(
-        "ALTER TABLE ${DbTables.users} ADD COLUMN salt TEXT NOT NULL DEFAULT ''",
-      );
+      // Salted password hashes. Upgrading from v1 creates the users table with
+      // the current definition just above, which already carries `salt`, so
+      // this has to be conditional.
+      await _addColumn(db, DbTables.users, 'salt', "TEXT NOT NULL DEFAULT ''");
       await _rehashLegacyPasswords(db);
 
       await db.execute(DbTables.createChatSessions);
@@ -124,6 +129,26 @@ class DatabaseProvider {
     for (final index in DbTables.createIndexes) {
       await db.execute(index);
     }
+  }
+
+  /// Adds a column only when it is missing.
+  ///
+  /// Migrations must be safe from every older version, and the steps overlap:
+  /// the v2 step creates tables from the *current* definitions, so a v1
+  /// database reaches the v3 step with some columns already present.
+  /// `ALTER TABLE ... ADD COLUMN` is not idempotent and aborts the whole
+  /// upgrade, leaving the app unable to open its database at all.
+  static Future<void> _addColumn(
+    Database db,
+    String table,
+    String column,
+    String definition,
+  ) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = columns.any((row) => row['name'] == column);
+    if (exists) return;
+
+    await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
   }
 
   /// Converts clear-text passwords written by v2 into salted hashes.

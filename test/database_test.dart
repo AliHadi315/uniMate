@@ -392,4 +392,105 @@ void main() {
       expect(tasks.single.task.reminderMinutesBefore, isNull);
     });
   });
+
+  group('migration from v1', () {
+    /// Builds the original v1 schema: courses/tasks/resources, no users table.
+    Future<void> createV1Database(String path) async {
+      final legacy = await databaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE ${DbTables.courses}(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                code TEXT NOT NULL,
+                instructor TEXT NOT NULL,
+                semester TEXT NOT NULL
+              );
+            ''');
+            await db.execute('''
+              CREATE TABLE ${DbTables.tasks}(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                courseId INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                type TEXT NOT NULL,
+                dueDateMillis INTEGER NOT NULL,
+                priority TEXT NOT NULL,
+                isCompleted INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(courseId) REFERENCES ${DbTables.courses}(id)
+                  ON DELETE CASCADE
+              );
+            ''');
+            await db.execute('''
+              CREATE TABLE ${DbTables.resources}(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                courseId INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                type TEXT NOT NULL,
+                value TEXT NOT NULL,
+                FOREIGN KEY(courseId) REFERENCES ${DbTables.courses}(id)
+                  ON DELETE CASCADE
+              );
+            ''');
+          },
+        ),
+      );
+
+      await legacy.insert(DbTables.courses, {
+        'name': 'Ancient Course',
+        'code': 'OLD100',
+        'instructor': 'Dr. Ancient',
+        'semester': 'Fall 2025',
+      });
+      await legacy.close();
+    }
+
+    // v1 predates the users table. The v2 step creates it with the current
+    // definition (which already has `salt`), so the v3 step must not blindly
+    // add that column again — that threw `duplicate column name: salt` and
+    // left the app unable to open its database at all.
+    test('upgrades v1 straight to v3 without failing', () async {
+      final path = DatabaseProvider.debugDbPathOverride!;
+      await createV1Database(path);
+
+      final db = await DatabaseProvider.getDatabase();
+      expect(await db.getVersion(), DbTables.dbVersion);
+
+      // Every v3 column is present exactly once.
+      final userCols = await db.rawQuery('PRAGMA table_info(${DbTables.users})');
+      expect(userCols.where((c) => c['name'] == 'salt').length, 1);
+
+      final courseCols = await db.rawQuery(
+        'PRAGMA table_info(${DbTables.courses})',
+      );
+      expect(courseCols.where((c) => c['name'] == 'userId').length, 1);
+      expect(courseCols.where((c) => c['name'] == 'colorValue').length, 1);
+
+      final taskCols = await db.rawQuery('PRAGMA table_info(${DbTables.tasks})');
+      expect(taskCols.where((c) => c['name'] == 'notes').length, 1);
+    });
+
+    // A v1 database has no accounts, so its courses cannot be assigned during
+    // the migration. They must not be stranded: the first account to sign up
+    // adopts them.
+    test('the first account adopts courses left over from v1', () async {
+      final path = DatabaseProvider.debugDbPathOverride!;
+      await createV1Database(path);
+
+      final userId = await createUser('S1');
+      final courses = await loadCourses(userId);
+      expect(courses.map((c) => c.code), ['OLD100']);
+    });
+
+    test('a later account does not adopt them', () async {
+      final path = DatabaseProvider.debugDbPathOverride!;
+      await createV1Database(path);
+
+      await createUser('S1');
+      final second = await createUser('S2');
+      expect(await loadCourses(second), isEmpty);
+    });
+  });
 }
