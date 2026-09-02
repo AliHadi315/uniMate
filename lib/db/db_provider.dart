@@ -60,6 +60,8 @@ class DatabaseProvider {
         await db.execute(DbTables.createResources);
         await db.execute(DbTables.createChatSessions);
         await db.execute(DbTables.createChatMessages);
+        await db.execute(DbTables.createClassSessions);
+        await db.execute(DbTables.createGrades);
         for (final index in DbTables.createIndexes) {
           await db.execute(index);
         }
@@ -124,6 +126,21 @@ class DatabaseProvider {
           where: 'userId = 0',
         );
       }
+    }
+
+    if (oldVersion < 4) {
+      // Timetable + grades. A v1..v3 database upgraded above already created
+      // tasks/courses with the current definitions, so the columns may exist.
+      await db.execute(DbTables.createClassSessions);
+      await db.execute(DbTables.createGrades);
+      await _addColumn(db, DbTables.tasks, 'recurrenceDays', 'INTEGER');
+      await _addColumn(db, DbTables.tasks, 'attachmentPath', 'TEXT');
+      await _addColumn(
+        db,
+        DbTables.courses,
+        'archived',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
     }
 
     for (final index in DbTables.createIndexes) {

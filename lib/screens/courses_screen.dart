@@ -45,6 +45,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
   String _semesterFilter = 'All';
   CourseSortField _sortField = CourseSortField.name;
   bool _ascending = true;
+  bool _showArchived = false;
 
   @override
   void didChangeDependencies() {
@@ -70,7 +71,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
     try {
       final userId = context.read<AuthProvider>().userId;
-      final courses = await loadCourses(userId);
+      final courses = await loadCourses(userId, includeArchived: true);
 
       // One pass over the courses instead of a FutureBuilder per row.
       final rows = <_CourseRow>[];
@@ -118,6 +119,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
     final filtered = _rows.where((row) {
       final c = row.course;
+      if (c.archived != _showArchived) return false;
       final matchesQuery =
           q.isEmpty ||
           c.name.toLowerCase().contains(q) ||
@@ -157,6 +159,28 @@ class _CoursesScreenState extends State<CoursesScreen> {
     );
 
     if (saved == true && mounted) context.read<DataRefresh>().bump();
+  }
+
+  Future<void> _toggleArchived(Course course) async {
+    final id = course.id;
+    if (id == null) return;
+
+    await setCourseArchived(id, !course.archived);
+    if (!mounted) return;
+    context.read<DataRefresh>().bump();
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            course.archived
+                ? '"${course.name}" restored'
+                : '"${course.name}" archived — hidden from the dashboard, '
+                      'agenda and statistics',
+          ),
+        ),
+      );
   }
 
   Future<void> _confirmDelete(Course course) async {
@@ -222,6 +246,18 @@ class _CoursesScreenState extends State<CoursesScreen> {
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: _showArchived
+                        ? 'Show active courses'
+                        : 'Show archived courses',
+                    onPressed: () =>
+                        setState(() => _showArchived = !_showArchived),
+                    icon: Icon(
+                      _showArchived
+                          ? Icons.unarchive_outlined
+                          : Icons.archive_outlined,
                     ),
                   ),
                   IconButton(
@@ -353,22 +389,34 @@ class _CoursesScreenState extends State<CoursesScreen> {
                   ],
                 ),
               ),
-              Pill(
-                text: row.pendingTasks == 0
-                    ? 'Clear'
-                    : '${row.pendingTasks} open',
-                color: row.pendingTasks == 0 ? AppTheme.low : accent,
-                dense: true,
-              ),
+              if (course.archived)
+                Pill(
+                  text: 'Archived',
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  dense: true,
+                )
+              else
+                Pill(
+                  text: row.pendingTasks == 0
+                      ? 'Clear'
+                      : '${row.pendingTasks} open',
+                  color: row.pendingTasks == 0 ? AppTheme.low : accent,
+                  dense: true,
+                ),
               PopupMenuButton<String>(
                 tooltip: 'Course actions',
                 onSelected: (v) {
                   if (v == 'edit') _openCourseDialog(existing: course);
+                  if (v == 'archive') _toggleArchived(course);
                   if (v == 'delete') _confirmDelete(course);
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'edit', child: Text('Edit')),
-                  PopupMenuItem(value: 'delete', child: Text('Delete')),
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                  PopupMenuItem(
+                    value: 'archive',
+                    child: Text(course.archived ? 'Unarchive' : 'Archive'),
+                  ),
+                  const PopupMenuItem(value: 'delete', child: Text('Delete')),
                 ],
               ),
             ],

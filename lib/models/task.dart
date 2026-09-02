@@ -15,6 +15,14 @@ class Task {
   /// When the task was ticked off, used by the weekly activity chart.
   final int? completedAtMillis;
 
+  /// Interval in days between occurrences (1 daily, 7 weekly, …).
+  /// `null` means the task does not repeat. Completing a repeating task
+  /// spawns the next occurrence.
+  final int? recurrenceDays;
+
+  /// Optional local file attached to this task.
+  final String? attachmentPath;
+
   const Task({
     this.id,
     required this.courseId,
@@ -26,9 +34,13 @@ class Task {
     this.notes = '',
     this.reminderMinutesBefore,
     this.completedAtMillis,
+    this.recurrenceDays,
+    this.attachmentPath,
   });
 
   bool get completed => isCompleted == 1;
+
+  bool get repeats => recurrenceDays != null && recurrenceDays! > 0;
 
   DateTime get dueDate => DateTime.fromMillisecondsSinceEpoch(dueDateMillis);
 
@@ -39,6 +51,20 @@ class Task {
     final minutes = reminderMinutesBefore;
     if (minutes == null) return null;
     return dueDate.subtract(Duration(minutes: minutes));
+  }
+
+  /// Due date of the occurrence after this one — the next slot strictly in
+  /// the future, so completing an overdue weekly task does not spawn another
+  /// task that is already overdue.
+  DateTime nextOccurrence({DateTime? now}) {
+    final days = recurrenceDays ?? 0;
+    assert(days > 0, 'nextOccurrence needs a repeating task');
+    final reference = now ?? DateTime.now();
+    var next = dueDate.add(Duration(days: days));
+    while (!next.isAfter(reference)) {
+      next = next.add(Duration(days: days));
+    }
+    return next;
   }
 
   Task copyWith({
@@ -54,6 +80,10 @@ class Task {
     bool clearReminder = false,
     int? completedAtMillis,
     bool clearCompletedAt = false,
+    int? recurrenceDays,
+    bool clearRecurrence = false,
+    String? attachmentPath,
+    bool clearAttachment = false,
   }) {
     return Task(
       id: id ?? this.id,
@@ -70,6 +100,12 @@ class Task {
       completedAtMillis: clearCompletedAt
           ? null
           : (completedAtMillis ?? this.completedAtMillis),
+      recurrenceDays: clearRecurrence
+          ? null
+          : (recurrenceDays ?? this.recurrenceDays),
+      attachmentPath: clearAttachment
+          ? null
+          : (attachmentPath ?? this.attachmentPath),
     );
   }
 
@@ -84,6 +120,8 @@ class Task {
     'notes': notes,
     'reminderMinutesBefore': reminderMinutesBefore,
     'completedAtMillis': completedAtMillis,
+    'recurrenceDays': recurrenceDays,
+    'attachmentPath': attachmentPath,
   };
 
   factory Task.fromMap(Map<String, Object?> map) {
@@ -98,6 +136,8 @@ class Task {
       notes: (map['notes'] as String?) ?? '',
       reminderMinutesBefore: map['reminderMinutesBefore'] as int?,
       completedAtMillis: map['completedAtMillis'] as int?,
+      recurrenceDays: map['recurrenceDays'] as int?,
+      attachmentPath: map['attachmentPath'] as String?,
     );
   }
 }

@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,6 +10,7 @@ import '../core/app_theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_refresh.dart';
 import '../providers/settings_provider.dart';
+import '../services/backup_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/common.dart';
 import 'phone_frame.dart';
@@ -113,6 +119,70 @@ class SettingsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 18),
 
+              const SectionHeader(title: 'Daily check-in'),
+              AppTile(
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: settings.dailySummaryEnabled,
+                      title: const Text('Daily agenda reminder'),
+                      subtitle: const Text(
+                        'One notification each day to open your agenda',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      onChanged: NotificationService.instance.isSupported
+                          ? (v) => _toggleDailySummary(context, v)
+                          : null,
+                    ),
+                    if (settings.dailySummaryEnabled) ...[
+                      const Divider(),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Time'),
+                        trailing: TextButton.icon(
+                          onPressed: () => _pickDailySummaryTime(context),
+                          icon: const Icon(Icons.schedule, size: 18),
+                          label: Text(
+                            settings.dailySummaryTime.format(context),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              const SectionHeader(title: 'Backup'),
+              AppTile(
+                onTap: () => _exportBackup(context),
+                child: const Row(
+                  children: [
+                    Icon(Icons.upload_file_outlined),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text('Export data'),
+                    ),
+                    Icon(Icons.chevron_right),
+                  ],
+                ),
+              ),
+              AppTile(
+                onTap: () => _importBackup(context),
+                child: const Row(
+                  children: [
+                    Icon(Icons.download_outlined),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text('Import backup'),
+                    ),
+                    Icon(Icons.chevron_right),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
               const SectionHeader(title: 'Account'),
               AppTile(
                 onTap: () => _editProfile(context),
@@ -158,7 +228,7 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 24),
               Center(
                 child: Text(
-                  'UniMate • version 0.2.0',
+                  'UniMate • version 0.3.0',
                   style: TextStyle(
                     fontSize: 11,
                     color: scheme.onSurfaceVariant,
@@ -288,6 +358,122 @@ class SettingsScreen extends StatelessWidget {
     } else {
       await settings.setRemindersEnabled(false);
       await NotificationService.instance.cancelAll();
+    }
+  }
+
+  Future<void> _toggleDailySummary(BuildContext context, bool enabled) async {
+    final settings = context.read<SettingsProvider>();
+
+    if (enabled) {
+      final granted = await NotificationService.instance.requestPermissions();
+      if (!granted) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Notification permission was denied.'),
+            ),
+          );
+        }
+        return;
+      }
+      await settings.setDailySummaryEnabled(true);
+      await NotificationService.instance.scheduleDailySummary(
+        hour: settings.dailySummaryMinutes ~/ 60,
+        minute: settings.dailySummaryMinutes % 60,
+      );
+    } else {
+      await settings.setDailySummaryEnabled(false);
+      await NotificationService.instance.cancelDailySummary();
+    }
+  }
+
+  Future<void> _pickDailySummaryTime(BuildContext context) async {
+    final settings = context.read<SettingsProvider>();
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: settings.dailySummaryTime,
+    );
+    if (picked == null) return;
+
+    final minutes = picked.hour * 60 + picked.minute;
+    await settings.setDailySummaryMinutes(minutes);
+    if (settings.dailySummaryEnabled) {
+      await NotificationService.instance.scheduleDailySummary(
+        hour: picked.hour,
+        minute: picked.minute,
+      );
+    }
+  }
+
+  Future<void> _exportBackup(BuildContext context) async {
+    final auth = context.read<AuthProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final json = await BackupService.exportJson(auth.userId);
+      final stamp = DateTime.now();
+      final name =
+          'unimate-backup-${stamp.year}'
+          '${stamp.month.toString().padLeft(2, '0')}'
+          '${stamp.day.toString().padLeft(2, '0')}.json';
+
+      // On Android/iOS the picker writes the provided bytes itself; on
+      // desktop it returns a path for us to write.
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save UniMate backup',
+        fileName: name,
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        bytes: Uint8List.fromList(utf8.encode(json)),
+      );
+      if (savedPath == null) return; // cancelled
+
+      final file = File(savedPath);
+      if (!await file.exists() || await file.length() == 0) {
+        await file.writeAsString(json);
+      }
+
+      messenger.showSnackBar(
+        SnackBar(content: Text('Backup saved to $savedPath')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not export: $e')),
+      );
+    }
+  }
+
+  Future<void> _importBackup(BuildContext context) async {
+    final auth = context.read<AuthProvider>();
+    final refresh = context.read<DataRefresh>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
+      final path = result?.files.single.path;
+      if (path == null) return;
+
+      final json = await File(path).readAsString();
+      final imported = await BackupService.importJson(auth.userId, json);
+
+      refresh.bump();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Imported $imported course${imported == 1 ? '' : 's'} with their '
+            'tasks, grades, classes and resources.',
+          ),
+        ),
+      );
+    } on FormatException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not import: $e')),
+      );
     }
   }
 

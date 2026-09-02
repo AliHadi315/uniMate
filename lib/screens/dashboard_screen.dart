@@ -8,12 +8,15 @@ import '../db/course_storage.dart';
 import '../db/task_storage.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_refresh.dart';
+import '../db/class_session_storage.dart';
 import '../providers/shell_tabs.dart';
+import '../services/task_actions.dart';
 import '../widgets/common.dart';
 import '../widgets/task_tile.dart';
 import 'course_details_screen.dart';
 import 'settings_screen.dart';
 import 'task_form_screen.dart';
+import 'timetable_screen.dart';
 
 /// Overview screen: at-a-glance counters, progress and what is due next.
 class DashboardScreen extends StatefulWidget {
@@ -32,6 +35,8 @@ class _DashboardSnapshot {
   final int dueToday;
   final List<TaskWithCourse> upcoming;
   final List<TaskWithCourse> overdueTasks;
+  final List<SessionWithCourse> todaysClasses;
+  final int streak;
 
   const _DashboardSnapshot({
     required this.courses,
@@ -42,6 +47,8 @@ class _DashboardSnapshot {
     required this.dueToday,
     required this.upcoming,
     required this.overdueTasks,
+    required this.todaysClasses,
+    required this.streak,
   });
 
   double get progress => totalTasks == 0 ? 0 : completed / totalTasks;
@@ -65,6 +72,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final upcoming = await loadUpcomingTasks(userId, limit: 5);
     final overdueTasks = await loadOverdueTasks(userId, limit: 3);
+    final todaysClasses = await loadSessionsForWeekday(
+      userId,
+      DateTime.now().weekday,
+    );
+    final streak = await completionStreak(userId);
 
     return _DashboardSnapshot(
       courses: results[0],
@@ -75,6 +87,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       dueToday: results[5],
       upcoming: upcoming,
       overdueTasks: overdueTasks,
+      todaysClasses: todaysClasses,
+      streak: streak,
     );
   }
 
@@ -109,7 +123,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _toggle(TaskWithCourse entry, bool value) async {
-    await setTaskCompleted(entry.task.id!, value);
+    await TaskActions.setCompleted(
+      entry.task,
+      completed: value,
+      courseCode: entry.course.code,
+    );
     if (mounted) context.read<DataRefresh>().bump();
   }
 
@@ -201,10 +219,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
               children: [
+                if (data.streak >= 2) ...[
+                  _streakBanner(data.streak),
+                  const SizedBox(height: 12),
+                ],
                 _statGrid(data),
                 const SizedBox(height: 18),
                 _progressCard(data),
                 const SizedBox(height: 18),
+
+                _classesSection(data),
 
                 if (data.overdueTasks.isNotEmpty) ...[
                   const SectionHeader(title: 'Needs attention'),
@@ -281,6 +305,111 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
         },
       ),
+    );
+  }
+
+  Widget _streakBanner(int streak) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.medium.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const Text('🔥', style: TextStyle(fontSize: 18)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '$streak-day streak — you completed tasks $streak days in a row',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: scheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _classesSection(_DashboardSnapshot data) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader(
+          title: "Today's classes",
+          trailing: TextButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TimetableScreen()),
+            ),
+            icon: const Icon(Icons.calendar_view_week, size: 16),
+            label: const Text('Timetable'),
+          ),
+        ),
+        if (data.todaysClasses.isEmpty)
+          AppTile(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TimetableScreen()),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.free_breakfast_outlined,
+                  size: 20,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text('No classes today. Tap to manage the timetable.'),
+                ),
+              ],
+            ),
+          )
+        else
+          ...data.todaysClasses.map((entry) {
+            final accent = AppTheme.courseColor(
+              entry.course.colorValue,
+              seedIndex: entry.course.id ?? 0,
+            );
+            return AppTile(
+              accent: accent,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const TimetableScreen()),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    entry.session.timeLabel,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '${entry.course.code}'
+                      '${entry.session.location.isEmpty ? '' : ' • ${entry.session.location}'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, color: accent),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        const SizedBox(height: 12),
+      ],
     );
   }
 

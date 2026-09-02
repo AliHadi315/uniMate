@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 import '../core/app_date.dart';
 import '../core/app_theme.dart';
 import '../db/course_storage.dart';
+import '../db/grade_storage.dart';
 import '../db/task_storage.dart';
 import '../models/course.dart';
+import '../models/grade.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_refresh.dart';
 import '../widgets/charts.dart';
@@ -36,6 +38,13 @@ class _CourseProgress {
   double get ratio => total == 0 ? 0 : done / total;
 }
 
+class _CourseGrade {
+  final Course course;
+  final GradeSummary summary;
+
+  const _CourseGrade({required this.course, required this.summary});
+}
+
 class _StatsSnapshot {
   final int totalTasks;
   final int completed;
@@ -44,6 +53,7 @@ class _StatsSnapshot {
   final List<int> weekly;
   final Map<String, int> byPriority;
   final List<_CourseProgress> perCourse;
+  final List<_CourseGrade> courseGrades;
 
   const _StatsSnapshot({
     required this.totalTasks,
@@ -53,7 +63,19 @@ class _StatsSnapshot {
     required this.weekly,
     required this.byPriority,
     required this.perCourse,
+    required this.courseGrades,
   });
+
+  /// Mean of the per-course averages — the closest honest figure without
+  /// knowing credit hours.
+  double? get overallGradeAverage {
+    final averages = [
+      for (final g in courseGrades)
+        if (g.summary.average != null) g.summary.average!,
+    ];
+    if (averages.isEmpty) return null;
+    return averages.reduce((a, b) => a + b) / averages.length;
+  }
 
   double get progress => totalTasks == 0 ? 0 : completed / totalTasks;
 }
@@ -99,6 +121,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
     perCourse.sort((a, b) => a.ratio.compareTo(b.ratio));
 
+    final gradesByCourse = await loadGradesByUser(userId);
+    final courseGrades = [
+      for (final course in courses)
+        if (course.id != null && (gradesByCourse[course.id]?.isNotEmpty ?? false))
+          _CourseGrade(
+            course: course,
+            summary: GradeSummary.of(gradesByCourse[course.id]!),
+          ),
+    ]..sort((a, b) => (b.summary.average ?? 0).compareTo(a.summary.average ?? 0));
+
     return _StatsSnapshot(
       totalTasks: await countAllTasks(userId),
       completed: await countCompletedTasks(userId),
@@ -107,6 +139,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       weekly: await completionsPerDay(userId),
       byPriority: await pendingByPriority(userId),
       perCourse: perCourse,
+      courseGrades: courseGrades,
     );
   }
 
@@ -166,6 +199,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 const SizedBox(height: 16),
                 _priorityCard(data),
                 const SizedBox(height: 16),
+                if (data.courseGrades.isNotEmpty) ...[
+                  _gradesCard(data),
+                  const SizedBox(height: 16),
+                ],
                 const SectionHeader(title: 'Progress by course'),
                 ...data.perCourse.map(_courseCard),
               ],
@@ -325,6 +362,94 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           ),
           const SizedBox(height: 14),
           DonutChart(segments: segments, centerLabel: 'open'),
+        ],
+      ),
+    );
+  }
+
+  Widget _gradesCard(_StatsSnapshot data) {
+    final scheme = Theme.of(context).colorScheme;
+    final overall = data.overallGradeAverage;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Grades',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              if (overall != null)
+                Text(
+                  '${overall.toStringAsFixed(1)}% • '
+                  '≈${GradeSummary.gpaFromPercent(overall).toStringAsFixed(1)} GPA',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: scheme.primary,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'GPA is an estimate on a common 4.0 band scale.',
+            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          ...data.courseGrades.map((entry) {
+            final average = entry.summary.average ?? 0;
+            final accent = AppTheme.courseColor(
+              entry.course.colorValue,
+              seedIndex: entry.course.id ?? 0,
+            );
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          entry.course.code,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${average.toStringAsFixed(1)}% '
+                        '(${GradeSummary.letterFromPercent(average)})',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: (average / 100).clamp(0.0, 1.0),
+                      minHeight: 6,
+                      color: accent,
+                      backgroundColor: scheme.onSurface.withValues(
+                        alpha: 0.08,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );

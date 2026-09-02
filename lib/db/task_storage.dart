@@ -23,7 +23,7 @@ const _taskColumns =
 const _courseColumns =
     'c.id AS c_id, c.userId AS c_userId, c.name AS c_name, c.code AS c_code, '
     'c.instructor AS c_instructor, c.semester AS c_semester, '
-    'c.colorValue AS c_colorValue';
+    'c.colorValue AS c_colorValue, c.archived AS c_archived';
 
 TaskWithCourse _joinedRow(Map<String, Object?> row) {
   return TaskWithCourse(
@@ -36,6 +36,7 @@ TaskWithCourse _joinedRow(Map<String, Object?> row) {
       'instructor': row['c_instructor'],
       'semester': row['c_semester'],
       'colorValue': row['c_colorValue'],
+      'archived': row['c_archived'],
     }),
   );
 }
@@ -76,7 +77,7 @@ Future<List<TaskWithCourse>> loadAllTasks(int userId) async {
     'SELECT $_taskColumns, $_courseColumns '
     'FROM ${DbTables.tasks} t '
     'JOIN ${DbTables.courses} c ON c.id = t.courseId '
-    'WHERE c.userId = ? '
+    'WHERE c.userId = ? AND c.archived = 0 '
     'ORDER BY t.isCompleted ASC, t.dueDateMillis ASC',
     [userId],
   );
@@ -119,7 +120,7 @@ Future<int> _countTasks(
   final rows = await db.rawQuery(
     'SELECT COUNT(*) AS total FROM ${DbTables.tasks} t '
     'JOIN ${DbTables.courses} c ON c.id = t.courseId '
-    'WHERE c.userId = ?$where',
+    'WHERE c.userId = ? AND c.archived = 0$where',
     [userId, ...extraArgs],
   );
   return (rows.first['total'] as int?) ?? 0;
@@ -174,7 +175,7 @@ Future<List<TaskWithCourse>> loadUpcomingTasks(
     'SELECT $_taskColumns, $_courseColumns '
     'FROM ${DbTables.tasks} t '
     'JOIN ${DbTables.courses} c ON c.id = t.courseId '
-    'WHERE c.userId = ? AND t.isCompleted = 0 AND t.dueDateMillis >= ? '
+    'WHERE c.userId = ? AND c.archived = 0 AND t.isCompleted = 0 AND t.dueDateMillis >= ? '
     'ORDER BY t.dueDateMillis ASC LIMIT ?',
     [userId, DateTime.now().millisecondsSinceEpoch, limit],
   );
@@ -191,7 +192,7 @@ Future<List<TaskWithCourse>> loadOverdueTasks(
     'SELECT $_taskColumns, $_courseColumns '
     'FROM ${DbTables.tasks} t '
     'JOIN ${DbTables.courses} c ON c.id = t.courseId '
-    'WHERE c.userId = ? AND t.isCompleted = 0 AND t.dueDateMillis < ? '
+    'WHERE c.userId = ? AND c.archived = 0 AND t.isCompleted = 0 AND t.dueDateMillis < ? '
     'ORDER BY t.dueDateMillis DESC LIMIT ?',
     [userId, DateTime.now().millisecondsSinceEpoch, limit],
   );
@@ -206,7 +207,7 @@ Future<List<TaskWithCourse>> loadTasksWithReminders(int userId) async {
     'SELECT $_taskColumns, $_courseColumns '
     'FROM ${DbTables.tasks} t '
     'JOIN ${DbTables.courses} c ON c.id = t.courseId '
-    'WHERE c.userId = ? AND t.isCompleted = 0 '
+    'WHERE c.userId = ? AND c.archived = 0 AND t.isCompleted = 0 '
     'AND t.reminderMinutesBefore IS NOT NULL',
     [userId],
   );
@@ -224,7 +225,7 @@ Future<List<int>> completionsPerDay(int userId, {int days = 7}) async {
   final rows = await db.rawQuery(
     'SELECT t.completedAtMillis AS completedAt FROM ${DbTables.tasks} t '
     'JOIN ${DbTables.courses} c ON c.id = t.courseId '
-    'WHERE c.userId = ? AND t.isCompleted = 1 AND t.completedAtMillis >= ?',
+    'WHERE c.userId = ? AND c.archived = 0 AND t.isCompleted = 1 AND t.completedAtMillis >= ?',
     [userId, start.millisecondsSinceEpoch],
   );
 
@@ -245,7 +246,7 @@ Future<Map<String, int>> pendingByPriority(int userId) async {
   final rows = await db.rawQuery(
     'SELECT t.priority AS priority, COUNT(*) AS total FROM ${DbTables.tasks} t '
     'JOIN ${DbTables.courses} c ON c.id = t.courseId '
-    'WHERE c.userId = ? AND t.isCompleted = 0 GROUP BY t.priority',
+    'WHERE c.userId = ? AND c.archived = 0 AND t.isCompleted = 0 GROUP BY t.priority',
     [userId],
   );
 
@@ -254,4 +255,39 @@ Future<Map<String, int>> pendingByPriority(int userId) async {
     result[row['priority'] as String] = (row['total'] as int?) ?? 0;
   }
   return result;
+}
+
+/// Consecutive days (ending today or yesterday) on which at least one task
+/// was completed. A completion today extends the streak; missing only today
+/// does not break it yet, so the streak survives until midnight.
+Future<int> completionStreak(int userId, {DateTime? now}) async {
+  final db = await DatabaseProvider.getDatabase();
+  final rows = await db.rawQuery(
+    'SELECT t.completedAtMillis AS completedAt FROM ${DbTables.tasks} t '
+    'JOIN ${DbTables.courses} c ON c.id = t.courseId '
+    'WHERE c.userId = ? AND c.archived = 0 AND t.isCompleted = 1 '
+    'AND t.completedAtMillis IS NOT NULL',
+    [userId],
+  );
+
+  final days = <DateTime>{};
+  for (final row in rows) {
+    final millis = row['completedAt'] as int?;
+    if (millis == null) continue;
+    days.add(AppDate.dayOnly(DateTime.fromMillisecondsSinceEpoch(millis)));
+  }
+  if (days.isEmpty) return 0;
+
+  final today = AppDate.dayOnly(now ?? DateTime.now());
+  var cursor = days.contains(today)
+      ? today
+      : today.subtract(const Duration(days: 1));
+  if (!days.contains(cursor)) return 0;
+
+  var streak = 0;
+  while (days.contains(cursor)) {
+    streak++;
+    cursor = cursor.subtract(const Duration(days: 1));
+  }
+  return streak;
 }

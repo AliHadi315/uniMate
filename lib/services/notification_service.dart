@@ -158,6 +158,65 @@ class NotificationService {
     }
   }
 
+  /// Fixed id for the repeating daily check-in, outside the task-id space.
+  static const _dailySummaryId = 0x7FFFFFF0;
+
+  /// (Re)schedules the repeating daily check-in at [hour]:[minute].
+  /// The text is deliberately generic — a local notification cannot compute
+  /// "N due today" at fire time, and a stale number is worse than none.
+  Future<void> scheduleDailySummary({
+    required int hour,
+    required int minute,
+  }) async {
+    if (!_supported) return;
+
+    try {
+      await _plugin.cancel(id: _dailySummaryId);
+      final now = tz.TZDateTime.now(tz.local);
+      var first = tz.TZDateTime(
+        tz.local,
+        now.year,
+        now.month,
+        now.day,
+        hour,
+        minute,
+      );
+      if (!first.isAfter(now)) first = first.add(const Duration(days: 1));
+
+      await _plugin.zonedSchedule(
+        id: _dailySummaryId,
+        title: 'Daily check-in',
+        body: 'Open your agenda to see what is due today.',
+        scheduledDate: first,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channelId,
+            _channelName,
+            channelDescription: _channelDescription,
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          ),
+          iOS: DarwinNotificationDetails(),
+          macOS: DarwinNotificationDetails(),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        matchDateTimeComponents: DateTimeComponents.time,
+        payload: 'daily-summary',
+      );
+    } catch (e) {
+      debugPrint('Could not schedule the daily summary: $e');
+    }
+  }
+
+  Future<void> cancelDailySummary() async {
+    if (!_supported) return;
+    try {
+      await _plugin.cancel(id: _dailySummaryId);
+    } catch (e) {
+      debugPrint('Could not cancel the daily summary: $e');
+    }
+  }
+
   Future<void> cancelAll() async {
     if (!_supported) return;
     try {

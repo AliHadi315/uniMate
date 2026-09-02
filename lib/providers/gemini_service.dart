@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/chat.dart';
+import '../services/ai_task_parser.dart';
 import '../models/file_attachment.dart';
 
 /// Raised for anything the chat screen should show to the user.
@@ -187,7 +188,9 @@ class GeminiService {
       )
       ..writeln(
         'Never invent courses, deadlines or grades that are not listed.',
-      );
+      )
+      ..writeln()
+      ..writeln(AiTaskParser.promptInstruction);
 
     if (studyContext != null && studyContext.trim().isNotEmpty) {
       buffer

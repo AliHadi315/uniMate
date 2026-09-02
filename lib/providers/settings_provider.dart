@@ -6,14 +6,27 @@ class SettingsProvider extends ChangeNotifier {
   static const _themeKey = 'unimate.settings.themeMode';
   static const _remindersKey = 'unimate.settings.remindersEnabled';
   static const _defaultReminderKey = 'unimate.settings.defaultReminderMinutes';
+  static const _dailySummaryKey = 'unimate.settings.dailySummaryEnabled';
+  static const _dailySummaryMinutesKey =
+      'unimate.settings.dailySummaryMinutes';
 
   ThemeMode _themeMode = ThemeMode.system;
   bool _remindersEnabled = true;
   int _defaultReminderMinutes = 60;
+  bool _dailySummaryEnabled = false;
+
+  /// Minutes since midnight for the daily check-in. Defaults to 08:00.
+  int _dailySummaryMinutes = 8 * 60;
 
   ThemeMode get themeMode => _themeMode;
   bool get remindersEnabled => _remindersEnabled;
   int get defaultReminderMinutes => _defaultReminderMinutes;
+  bool get dailySummaryEnabled => _dailySummaryEnabled;
+  int get dailySummaryMinutes => _dailySummaryMinutes;
+  TimeOfDay get dailySummaryTime => TimeOfDay(
+    hour: _dailySummaryMinutes ~/ 60,
+    minute: _dailySummaryMinutes % 60,
+  );
 
   Future<void> load() async {
     try {
@@ -26,6 +39,8 @@ class SettingsProvider extends ChangeNotifier {
       };
       _remindersEnabled = prefs.getBool(_remindersKey) ?? true;
       _defaultReminderMinutes = prefs.getInt(_defaultReminderKey) ?? 60;
+      _dailySummaryEnabled = prefs.getBool(_dailySummaryKey) ?? false;
+      _dailySummaryMinutes = prefs.getInt(_dailySummaryMinutesKey) ?? 8 * 60;
     } catch (e) {
       debugPrint('Could not load settings: $e');
     }
@@ -48,6 +63,18 @@ class SettingsProvider extends ChangeNotifier {
     _defaultReminderMinutes = minutes;
     notifyListeners();
     await _write((prefs) => prefs.setInt(_defaultReminderKey, minutes));
+  }
+
+  Future<void> setDailySummaryEnabled(bool enabled) async {
+    _dailySummaryEnabled = enabled;
+    notifyListeners();
+    await _write((prefs) => prefs.setBool(_dailySummaryKey, enabled));
+  }
+
+  Future<void> setDailySummaryMinutes(int minutes) async {
+    _dailySummaryMinutes = minutes;
+    notifyListeners();
+    await _write((prefs) => prefs.setInt(_dailySummaryMinutesKey, minutes));
   }
 
   Future<void> _write(Future<void> Function(SharedPreferences) action) async {

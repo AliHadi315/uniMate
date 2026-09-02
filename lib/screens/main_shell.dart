@@ -54,6 +54,15 @@ class _MainShellState extends State<MainShell> {
       // when the user happens to visit Settings.
       await service.requestPermissions();
       await service.rescheduleAllForUser(auth.userId);
+
+      // The repeating daily check-in is cancelled by rescheduleAllForUser's
+      // cancelAll, so re-arm it when the user has it enabled.
+      if (settings.dailySummaryEnabled) {
+        await service.scheduleDailySummary(
+          hour: settings.dailySummaryMinutes ~/ 60,
+          minute: settings.dailySummaryMinutes % 60,
+        );
+      }
     } catch (_) {
       // Reminders are best-effort; never block the UI on them.
     }

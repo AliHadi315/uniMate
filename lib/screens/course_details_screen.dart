@@ -8,13 +8,16 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_theme.dart';
+import '../db/grade_storage.dart';
 import '../db/resource_storage.dart';
 import '../db/task_storage.dart';
 import '../models/course.dart';
+import '../models/grade.dart';
 import '../models/resource.dart';
 import '../models/task.dart';
 import '../providers/data_refresh.dart';
 import '../services/notification_service.dart';
+import '../services/task_actions.dart';
 import '../widgets/common.dart';
 import '../widgets/task_tile.dart';
 import 'phone_frame.dart';
@@ -44,6 +47,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
 
   List<Task> _tasks = [];
   List<Resource> _resources = [];
+  List<Grade> _grades = [];
   bool _loading = true;
   String? _error;
 
@@ -65,7 +69,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this)
+    _tabController = TabController(length: 3, vsync: this)
       ..addListener(() => setState(() {}));
     _loadAll();
   }
@@ -89,10 +93,12 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
     try {
       final tasks = await loadTasksByCourse(id);
       final resources = await loadResourcesByCourse(id);
+      final grades = await loadGradesByCourse(id);
       if (!mounted) return;
       setState(() {
         _tasks = tasks;
         _resources = resources;
+        _grades = grades;
         _loading = false;
       });
     } catch (e) {
@@ -132,24 +138,15 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
   }
 
   Future<void> _toggleComplete(Task task, bool value) async {
-    final id = task.id;
-    if (id == null) return;
+    if (task.id == null) return;
 
-    await setTaskCompleted(id, value);
-
-    // A finished task should stop nagging; an un-finished one gets its
-    // reminder back.
-    if (value) {
-      await NotificationService.instance.cancelForTask(id);
-    } else {
-      final refreshed = await loadTaskById(id);
-      if (refreshed != null) {
-        await NotificationService.instance.scheduleForTask(
-          refreshed,
-          courseCode: widget.course.code,
-        );
-      }
-    }
+    // Handles reminder bookkeeping and, for repeating tasks, spawning the
+    // next occurrence.
+    await TaskActions.setCompleted(
+      task,
+      completed: value,
+      courseCode: widget.course.code,
+    );
 
     await _loadAll();
     _notifyChanged();
@@ -193,6 +190,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
         notes: task.notes,
         reminderMinutesBefore: task.reminderMinutesBefore,
         completedAtMillis: task.completedAtMillis,
+        recurrenceDays: task.recurrenceDays,
+        attachmentPath: task.attachmentPath,
       ),
     );
     await NotificationService.instance.scheduleForTask(
@@ -260,6 +259,182 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
 
     return filtered;
   }
+
+  // -------------------------------------------------------------- grades
+
+  Future<void> _openGradeDialog({Grade? existing}) async {
+    final id = widget.course.id;
+    if (id == null) return;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _GradeDialog(courseId: id, existing: existing),
+    );
+
+    if (saved == true) {
+      await _loadAll();
+      _notifyChanged();
+    }
+  }
+
+  Future<void> _deleteGrade(Grade grade) async {
+    final id = grade.id;
+    if (id == null) return;
+
+    await deleteGradeById(id);
+    await _loadAll();
+    _notifyChanged();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('Deleted "${grade.title}"'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () async {
+              await insertGrade(grade.copyWith());
+              await _loadAll();
+              _notifyChanged();
+            },
+          ),
+        ),
+      );
+  }
+
+  Widget _gradesTab() {
+    if (_grades.isEmpty) {
+      return EmptyState(
+        icon: Icons.grade_outlined,
+        title: 'No grades yet',
+        message:
+            'Record quiz, assignment and exam results to track your course '
+            'grade. Weights are each item\'s share of the final grade.',
+        action: FilledButton.icon(
+          onPressed: () => _openGradeDialog(),
+          icon: const Icon(Icons.add),
+          label: const Text('Add grade'),
+        ),
+      );
+    }
+
+    final summary = GradeSummary.of(_grades);
+    final scheme = Theme.of(context).colorScheme;
+    final surfaces = AppSurfaces.of(context);
+    final average = summary.average ?? 0;
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 90),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: surfaces.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: surfaces.outline),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Current grade',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      summary.weightCovered > 0
+                          ? '${summary.weightCovered.toStringAsFixed(0)}% of '
+                                'the final grade recorded'
+                          : 'Unweighted average of ${summary.count} '
+                                'result${summary.count == 1 ? '' : 's'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${average.toStringAsFixed(1)}%',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: _accent,
+                    ),
+                  ),
+                  Text(
+                    '${GradeSummary.letterFromPercent(average)} • '
+                    '≈${GradeSummary.gpaFromPercent(average).toStringAsFixed(1)} GPA',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        ..._grades.map(_gradeTile),
+      ],
+    );
+  }
+
+  Widget _gradeTile(Grade grade) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return AppTile(
+      accent: _accent,
+      onTap: () => _openGradeDialog(existing: grade),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  grade.title,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${_trimNumber(grade.score)} / ${_trimNumber(grade.maxScore)}'
+                  '${grade.weight > 0 ? ' • ${_trimNumber(grade.weight)}% of final' : ''}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Pill(
+            text: '${grade.percent.toStringAsFixed(0)}%',
+            color: grade.percent >= 50 ? AppTheme.low : AppTheme.high,
+            dense: true,
+          ),
+          IconButton(
+            tooltip: 'Delete grade',
+            icon: const Icon(Icons.delete_outline, size: 20),
+            onPressed: () => _deleteGrade(grade),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _trimNumber(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(1);
 
   // ------------------------------------------------------------ resources
 
@@ -457,11 +632,17 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: _accent,
-        onPressed: () => _tabController.index == 0
-            ? _openTaskForm()
-            : _openResourceDialog(),
+        onPressed: () => switch (_tabController.index) {
+          0 => _openTaskForm(),
+          1 => _openGradeDialog(),
+          _ => _openResourceDialog(),
+        },
         icon: const Icon(Icons.add),
-        label: Text(_tabController.index == 0 ? 'Task' : 'Resource'),
+        label: Text(switch (_tabController.index) {
+          0 => 'Task',
+          1 => 'Grade',
+          _ => 'Resource',
+        }),
       ),
       body: SafeArea(
         child: PhoneFrame(
@@ -474,8 +655,11 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
                 labelColor: _accent,
                 unselectedLabelColor: scheme.onSurfaceVariant,
                 indicatorColor: _accent,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
                 tabs: [
                   Tab(text: 'Tasks ($pending open)'),
+                  Tab(text: 'Grades (${_grades.length})'),
                   Tab(text: 'Resources (${_resources.length})'),
                 ],
               ),
@@ -495,7 +679,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
                       )
                     : TabBarView(
                         controller: _tabController,
-                        children: [_tasksTab(), _resourcesTab()],
+                        children: [_tasksTab(), _gradesTab(), _resourcesTab()],
                       ),
               ),
             ],
@@ -1028,6 +1212,188 @@ class _ResourceDialogState extends State<_ResourceDialog> {
                   }
                   return null;
                 },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Add/edit one assessment result.
+class _GradeDialog extends StatefulWidget {
+  const _GradeDialog({required this.courseId, this.existing});
+
+  final int courseId;
+  final Grade? existing;
+
+  @override
+  State<_GradeDialog> createState() => _GradeDialogState();
+}
+
+class _GradeDialogState extends State<_GradeDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _scoreCtrl;
+  late final TextEditingController _maxCtrl;
+  late final TextEditingController _weightCtrl;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    _titleCtrl = TextEditingController(text: existing?.title ?? '');
+    _scoreCtrl = TextEditingController(
+      text: existing == null ? '' : '${existing.score}',
+    );
+    _maxCtrl = TextEditingController(
+      text: existing == null ? '100' : '${existing.maxScore}',
+    );
+    _weightCtrl = TextEditingController(
+      text: existing == null || existing.weight == 0
+          ? ''
+          : '${existing.weight}',
+    );
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _scoreCtrl.dispose();
+    _maxCtrl.dispose();
+    _weightCtrl.dispose();
+    super.dispose();
+  }
+
+  String? _validateNumber(String? value, {required bool allowEmpty}) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) return allowEmpty ? null : 'Required';
+    final number = double.tryParse(text);
+    if (number == null || number < 0) return 'Enter a valid number';
+    return null;
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate() || _saving) return;
+
+    final score = double.parse(_scoreCtrl.text.trim());
+    final maxScore = double.parse(_maxCtrl.text.trim());
+    if (maxScore <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Max score must be greater than zero.')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    try {
+      final weightText = _weightCtrl.text.trim();
+      final grade = Grade(
+        id: widget.existing?.id,
+        courseId: widget.courseId,
+        title: _titleCtrl.text.trim(),
+        score: score,
+        maxScore: maxScore,
+        weight: weightText.isEmpty ? 0 : double.parse(weightText),
+        createdAtMillis: widget.existing?.createdAtMillis ??
+            DateTime.now().millisecondsSinceEpoch,
+      );
+
+      if (widget.existing == null) {
+        await insertGrade(grade);
+      } else {
+        await updateGrade(grade);
+      }
+
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.existing == null ? 'Add grade' : 'Edit grade'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _titleCtrl,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  hintText: 'e.g. Midterm exam',
+                ),
+                validator: (v) =>
+                    (v ?? '').trim().isEmpty ? 'Enter a title' : null,
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _scoreCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(labelText: 'Score'),
+                      validator: (v) => _validateNumber(v, allowEmpty: false),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Text('/'),
+                  ),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _maxCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(labelText: 'Out of'),
+                      validator: (v) => _validateNumber(v, allowEmpty: false),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _weightCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Weight % (optional)',
+                  helperText: 'Share of the final grade, e.g. 20',
+                ),
+                validator: (v) => _validateNumber(v, allowEmpty: true),
               ),
             ],
           ),

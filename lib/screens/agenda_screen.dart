@@ -8,7 +8,7 @@ import '../db/task_storage.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_refresh.dart';
 import '../providers/shell_tabs.dart';
-import '../services/notification_service.dart';
+import '../services/task_actions.dart';
 import '../widgets/common.dart';
 import '../widgets/task_tile.dart';
 import 'phone_frame.dart';
@@ -130,15 +130,17 @@ class _AgendaScreenState extends State<AgendaScreen> {
     final id = entry.task.id;
     if (id == null) return;
 
-    await setTaskCompleted(id, value);
-    if (value) {
-      await NotificationService.instance.cancelForTask(id);
-    }
+    final result = await TaskActions.setCompleted(
+      entry.task,
+      completed: value,
+      courseCode: entry.course.code,
+    );
     if (!mounted) return;
     context.read<DataRefresh>().bump();
 
     // With "Hide done" on, the row disappears the moment it is ticked, so give
-    // the user a way back from a mis-tap.
+    // the user a way back from a mis-tap. Undo also removes the occurrence a
+    // repeating task just spawned.
     if (value && _hideCompleted) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -148,7 +150,11 @@ class _AgendaScreenState extends State<AgendaScreen> {
             action: SnackBarAction(
               label: 'Undo',
               onPressed: () async {
-                await setTaskCompleted(id, false);
+                await TaskActions.undoCompletion(
+                  entry.task,
+                  courseCode: entry.course.code,
+                  spawnedTaskId: result.spawnedTaskId,
+                );
                 if (mounted) context.read<DataRefresh>().bump();
               },
             ),

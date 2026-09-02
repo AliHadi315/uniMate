@@ -10,6 +10,10 @@ class Course {
   /// deterministically", which keeps old rows looking sensible.
   final int colorValue;
 
+  /// Archived courses stay in the database but disappear from the dashboard,
+  /// agenda, statistics and the assistant's context.
+  final bool archived;
+
   const Course({
     this.id,
     this.userId = 0,
@@ -18,6 +22,7 @@ class Course {
     required this.instructor,
     required this.semester,
     this.colorValue = 0,
+    this.archived = false,
   });
 
   Course copyWith({
@@ -28,6 +33,7 @@ class Course {
     String? instructor,
     String? semester,
     int? colorValue,
+    bool? archived,
   }) {
     return Course(
       id: id ?? this.id,
@@ -37,6 +43,7 @@ class Course {
       instructor: instructor ?? this.instructor,
       semester: semester ?? this.semester,
       colorValue: colorValue ?? this.colorValue,
+      archived: archived ?? this.archived,
     );
   }
 
@@ -48,6 +55,7 @@ class Course {
     'instructor': instructor,
     'semester': semester,
     'colorValue': colorValue,
+    'archived': archived ? 1 : 0,
   };
 
   factory Course.fromMap(Map<String, Object?> map) {
@@ -59,6 +67,7 @@ class Course {
       instructor: map['instructor'] as String,
       semester: map['semester'] as String,
       colorValue: (map['colorValue'] as int?) ?? 0,
+      archived: ((map['archived'] as int?) ?? 0) == 1,
     );
   }
 }

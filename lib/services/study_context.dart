@@ -1,4 +1,5 @@
 import '../core/app_date.dart';
+import '../db/class_session_storage.dart';
 import '../db/course_storage.dart';
 import '../db/task_storage.dart';
 
@@ -24,6 +25,20 @@ class StudyContextBuilder {
         '- ${course.code} — ${course.name} (${course.instructor}, '
         '${course.semester})',
       );
+    }
+
+    final sessions = await loadWeekSessions(userId);
+    if (sessions.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('Weekly class schedule:');
+      for (final entry in sessions) {
+        buffer.writeln(
+          '- ${entry.session.weekdayName} ${entry.session.timeLabel}: '
+          '${entry.course.code}'
+          '${entry.session.location.isEmpty ? '' : ' (${entry.session.location})'}',
+        );
+      }
     }
 
     final done = entries.length - open.length;

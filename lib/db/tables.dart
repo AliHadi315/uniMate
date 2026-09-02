@@ -4,7 +4,8 @@ class DbTables {
   /// v1 courses/tasks/resources
   /// v2 users
   /// v3 per-user courses, salted passwords, task notes + reminders, chat history
-  static const dbVersion = 3;
+  /// v4 class timetable, grades, recurring tasks, attachments, archiving
+  static const dbVersion = 4;
 
   static const courses = 'courses';
   static const tasks = 'tasks';
@@ -12,6 +13,8 @@ class DbTables {
   static const users = 'users';
   static const chatSessions = 'chat_sessions';
   static const chatMessages = 'chat_messages';
+  static const classSessions = 'class_sessions';
+  static const grades = 'grades';
 
   static const createUsers =
       '''
@@ -35,7 +38,8 @@ class DbTables {
     code TEXT NOT NULL,
     instructor TEXT NOT NULL,
     semester TEXT NOT NULL,
-    colorValue INTEGER NOT NULL DEFAULT 0
+    colorValue INTEGER NOT NULL DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0
   );
   ''';
 
@@ -52,6 +56,8 @@ class DbTables {
     notes TEXT NOT NULL DEFAULT '',
     reminderMinutesBefore INTEGER,
     completedAtMillis INTEGER,
+    recurrenceDays INTEGER,
+    attachmentPath TEXT,
     FOREIGN KEY(courseId) REFERENCES $courses(id) ON DELETE CASCADE
   );
   ''';
@@ -91,6 +97,37 @@ class DbTables {
   );
   ''';
 
+  /// Weekly recurring lectures/labs. weekday follows DateTime: 1=Mon … 7=Sun.
+  /// Times are minutes since midnight so no timezone maths is needed.
+  static const createClassSessions =
+      '''
+  CREATE TABLE IF NOT EXISTS $classSessions(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    courseId INTEGER NOT NULL,
+    weekday INTEGER NOT NULL,
+    startMinutes INTEGER NOT NULL,
+    endMinutes INTEGER NOT NULL,
+    location TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(courseId) REFERENCES $courses(id) ON DELETE CASCADE
+  );
+  ''';
+
+  /// Assessment results. weight is the share of the final grade in percent;
+  /// weights of 0 fall back to an unweighted average.
+  static const createGrades =
+      '''
+  CREATE TABLE IF NOT EXISTS $grades(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    courseId INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    score REAL NOT NULL,
+    maxScore REAL NOT NULL,
+    weight REAL NOT NULL DEFAULT 0,
+    createdAtMillis INTEGER NOT NULL,
+    FOREIGN KEY(courseId) REFERENCES $courses(id) ON DELETE CASCADE
+  );
+  ''';
+
   /// Indexes for the lookups the app performs on every screen.
   static const createIndexes = <String>[
     'CREATE INDEX IF NOT EXISTS idx_courses_user ON $courses(userId);',
@@ -98,5 +135,7 @@ class DbTables {
     'CREATE INDEX IF NOT EXISTS idx_tasks_due ON $tasks(dueDateMillis);',
     'CREATE INDEX IF NOT EXISTS idx_resources_course ON $resources(courseId);',
     'CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON $chatMessages(sessionId);',
+    'CREATE INDEX IF NOT EXISTS idx_class_sessions_course ON $classSessions(courseId);',
+    'CREATE INDEX IF NOT EXISTS idx_grades_course ON $grades(courseId);',
   ];
 }

@@ -1,4 +1,8 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:open_file/open_file.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_date.dart';
@@ -44,11 +48,21 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
   final _titleCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
 
+  static const _recurrenceChoices = <int?, String>{
+    null: 'Does not repeat',
+    1: 'Daily',
+    7: 'Weekly',
+    14: 'Every 2 weeks',
+    30: 'Monthly',
+  };
+
   String _type = 'Assignment';
   String _priority = 'Medium';
   late DateTime _dueDate;
   bool _completed = false;
   int? _reminderMinutes;
+  int? _recurrenceDays;
+  String? _attachmentPath;
   bool _reminderDefaultApplied = false;
   bool _saving = false;
 
@@ -65,6 +79,8 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
       _dueDate = task.dueDate;
       _completed = task.completed;
       _reminderMinutes = task.reminderMinutesBefore;
+      _recurrenceDays = task.recurrenceDays;
+      _attachmentPath = task.attachmentPath;
     } else {
       // Default to tomorrow at 09:00 rather than "now + 1 day".
       final tomorrow = DateTime.now().add(const Duration(days: 1));
@@ -160,6 +176,8 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
                   ? existing?.completedAtMillis
                   : DateTime.now().millisecondsSinceEpoch)
             : null,
+        recurrenceDays: _recurrenceDays,
+        attachmentPath: _attachmentPath,
       );
 
       final int savedId;
@@ -322,6 +340,28 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
                 ),
                 const SizedBox(height: 14),
 
+                DropdownButtonFormField<int?>(
+                  initialValue: _recurrenceDays,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Repeat',
+                    prefixIcon: Icon(Icons.repeat, size: 20),
+                  ),
+                  items: _recurrenceChoices.entries
+                      .map(
+                        (e) => DropdownMenuItem<int?>(
+                          value: e.key,
+                          child: Text(e.value),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setState(() => _recurrenceDays = v),
+                ),
+                const SizedBox(height: 14),
+
+                _attachmentRow(),
+                const SizedBox(height: 14),
+
                 TextFormField(
                   controller: _notesCtrl,
                   minLines: 3,
@@ -358,6 +398,89 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _pickAttachment() async {
+    try {
+      final result = await FilePicker.platform.pickFiles();
+      final path = result?.files.single.path;
+      if (path == null || !mounted) return;
+      setState(() => _attachmentPath = path);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not attach the file: $e')));
+    }
+  }
+
+  Future<void> _openAttachment() async {
+    final path = _attachmentPath;
+    if (path == null) return;
+    try {
+      final result = await OpenFile.open(path);
+      if (result.type != ResultType.done && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(result.message)));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not open the file: $e')));
+    }
+  }
+
+  Widget _attachmentRow() {
+    final surfaces = AppSurfaces.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final path = _attachmentPath;
+    final fileName = path?.split(Platform.pathSeparator).last;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: surfaces.tile,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: surfaces.outline),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.attach_file, size: 20, color: scheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: path == null
+                ? Text(
+                    'No attachment',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  )
+                : InkWell(
+                    onTap: _openAttachment,
+                    child: Text(
+                      fileName ?? path,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+          ),
+          if (path != null)
+            IconButton(
+              tooltip: 'Remove attachment',
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => setState(() => _attachmentPath = null),
+            ),
+          TextButton(
+            onPressed: _pickAttachment,
+            child: Text(path == null ? 'Attach' : 'Change'),
+          ),
+        ],
       ),
     );
   }

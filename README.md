@@ -19,6 +19,12 @@ the assistant.
 | **Statistics** | Overall completion, a 7-day "tasks completed" bar chart, a priority donut, and per-course progress. |
 | **AI assistant** | Chat that can see your real courses and open tasks, uploads images/PDFs to the model, saves chat history to the database, and offers starter prompts. |
 | **Settings** | Profile editing, password change, light/dark/system theme, reminder preferences, sign out. |
+| **Timetable** | Weekly class schedule (day, time, location) per course; today's classes on the dashboard. |
+| **Grades & GPA** | Record assessment results with weights per course; weighted course average, letter grade and an estimated 4.0-scale GPA on the Statistics screen. |
+| **Recurring tasks** | Daily / weekly / bi-weekly / monthly repeats — completing one spawns the next occurrence (with its reminder). |
+| **Backup** | Export all courses, tasks, grades, classes and resources to a JSON file and import them on any device. |
+| **AI task creation** | Ask the assistant to plan your week and it proposes concrete tasks you review and add with one tap. |
+| **Streaks & archiving** | Completion streak on the dashboard; archive finished courses to hide them everywhere without deleting. |
 
 ## Getting started
 
@@ -77,13 +83,14 @@ lib/
 
 ### Database
 
-SQLite, currently at **version 3**:
+SQLite, currently at **version 4**:
 
 | Version | Change |
 | --- | --- |
 | 1 | `courses`, `tasks`, `resources` |
 | 2 | `users` |
 | 3 | per-user `courses.userId` + `colorValue`, task `notes` / `reminderMinutesBefore` / `completedAtMillis`, salted `users.salt` (existing clear-text passwords are re-hashed in place, so old logins keep working), `chat_sessions` + `chat_messages`, indexes |
+| 4 | `class_sessions` + `grades` tables, task `recurrenceDays` + `attachmentPath`, `courses.archived` |
 
 Upgrades run automatically on first launch after an update; the migration is
 covered by `test/database_test.dart`.

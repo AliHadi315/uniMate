@@ -8,10 +8,18 @@ import 'package:provider/provider.dart';
 import '../core/app_date.dart';
 import '../core/app_theme.dart';
 import '../db/chat_storage.dart';
+import '../db/course_storage.dart';
+import '../db/task_storage.dart';
 import '../models/chat.dart';
+import '../models/course.dart';
+import '../models/task.dart';
 import '../models/file_attachment.dart';
 import '../providers/auth_provider.dart';
+import '../providers/data_refresh.dart';
 import '../providers/gemini_service.dart';
+import '../providers/settings_provider.dart';
+import '../services/ai_task_parser.dart';
+import '../services/notification_service.dart';
 import '../services/study_context.dart';
 import '../widgets/common.dart';
 
@@ -44,6 +52,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   final List<FileAttachment> _attachments = [];
 
   List<ChatSession> _sessions = [];
+  List<SuggestedTask> _pendingSuggestions = [];
   int? _openSessionId;
   bool _sending = false;
   bool _useStudyContext = true;
@@ -119,15 +128,22 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         studyContext: studyContext,
       );
 
+      // The reply may carry a structured block proposing tasks; show the
+      // prose and hold the suggestions for review.
+      final parsed = AiTaskParser.parse(reply);
+
       if (!mounted) return;
       setState(() {
         _messages.add(
           ChatMessage(
             role: 'assistant',
-            content: reply,
+            content: parsed.text.isEmpty
+                ? 'I put together some tasks for you — review them below.'
+                : parsed.text,
             createdAtMillis: DateTime.now().millisecondsSinceEpoch,
           ),
         );
+        _pendingSuggestions = parsed.tasks;
         _attachments.clear();
         _sending = false;
       });
@@ -392,6 +408,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
           Expanded(
             child: _messages.isEmpty ? _welcome() : _messageList(),
           ),
+          if (_pendingSuggestions.isNotEmpty) _suggestionBanner(),
           if (_attachments.isNotEmpty) _attachmentBar(),
           if (_sending) _typingIndicator(),
           _composer(),
@@ -565,6 +582,179 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         ],
       ),
     );
+  }
+
+  Widget _suggestionBanner() {
+    final scheme = Theme.of(context).colorScheme;
+    final count = _pendingSuggestions.length;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.playlist_add_check, size: 18, color: scheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$count task${count == 1 ? '' : 's'} suggested',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: scheme.primary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => setState(() => _pendingSuggestions = []),
+            child: const Text('Dismiss'),
+          ),
+          FilledButton(
+            onPressed: _reviewSuggestions,
+            child: const Text('Review & add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Bottom sheet: pick which suggested tasks to create.
+  Future<void> _reviewSuggestions() async {
+    final userId = _userId;
+    final courses = await loadCourses(userId);
+    if (!mounted) return;
+
+    if (courses.isEmpty) {
+      _snack('Add a course first so the tasks have somewhere to go.');
+      return;
+    }
+
+    final suggestions = List.of(_pendingSuggestions);
+    final selected = List<bool>.filled(suggestions.length, true);
+
+    Course courseFor(SuggestedTask suggestion) => courses.firstWhere(
+      (c) => c.code.toLowerCase() == suggestion.courseCode.toLowerCase(),
+      orElse: () => courses.first,
+    );
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Suggested tasks',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Untick anything you do not want. Nothing is created until '
+                  'you confirm.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: suggestions.length,
+                    itemBuilder: (ctx, i) {
+                      final suggestion = suggestions[i];
+                      final course = courseFor(suggestion);
+                      return CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: selected[i],
+                        onChanged: (v) =>
+                            setSheetState(() => selected[i] = v ?? false),
+                        title: Text(suggestion.title),
+                        subtitle: Text(
+                          '${course.code} • ${suggestion.type} • '
+                          '${suggestion.priority} • due in '
+                          '${suggestion.dueInDays} day'
+                          '${suggestion.dueInDays == 1 ? '' : 's'}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Add tasks'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final settings = context.read<SettingsProvider>();
+    final reminder =
+        settings.remindersEnabled ? settings.defaultReminderMinutes : null;
+
+    var added = 0;
+    final now = DateTime.now();
+    for (var i = 0; i < suggestions.length; i++) {
+      if (!selected[i]) continue;
+      final suggestion = suggestions[i];
+      final course = courseFor(suggestion);
+
+      final due = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        9,
+      ).add(Duration(days: suggestion.dueInDays));
+
+      final task = Task(
+        courseId: course.id!,
+        title: suggestion.title,
+        type: suggestion.type,
+        dueDateMillis: due.millisecondsSinceEpoch,
+        priority: suggestion.priority,
+        isCompleted: 0,
+        notes: suggestion.notes,
+        reminderMinutesBefore: reminder,
+      );
+      final id = await insertTask(task);
+      await NotificationService.instance.scheduleForTask(
+        task.copyWith(id: id),
+        courseCode: course.code,
+      );
+      added++;
+    }
+
+    if (!mounted) return;
+    setState(() => _pendingSuggestions = []);
+    context.read<DataRefresh>().bump();
+    _snack('Added $added task${added == 1 ? '' : 's'} to your agenda.');
   }
 
   Widget _attachmentBar() {
