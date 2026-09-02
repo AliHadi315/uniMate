@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/agenda_range.dart';
 import '../core/app_date.dart';
 import '../core/app_theme.dart';
 import '../db/task_storage.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_refresh.dart';
+import '../providers/shell_tabs.dart';
 import '../services/notification_service.dart';
 import '../widgets/common.dart';
 import '../widgets/task_tile.dart';
 import 'phone_frame.dart';
 import 'task_form_screen.dart';
 
-enum AgendaRange { today, week, upcoming, overdue, all }
+
 
 /// Every task across every course, grouped by day.
 ///
@@ -43,6 +45,12 @@ class _AgendaScreenState extends State<AgendaScreen> {
     if (revision != _revision) {
       _revision = revision;
       _load();
+    }
+
+    // A stat card on the dashboard may have deep-linked here with a filter.
+    final requested = Provider.of<ShellTabs>(context).takeAgendaRange();
+    if (requested != null && requested != _range) {
+      _range = requested;
     }
   }
 
@@ -126,7 +134,27 @@ class _AgendaScreenState extends State<AgendaScreen> {
     if (value) {
       await NotificationService.instance.cancelForTask(id);
     }
-    if (mounted) context.read<DataRefresh>().bump();
+    if (!mounted) return;
+    context.read<DataRefresh>().bump();
+
+    // With "Hide done" on, the row disappears the moment it is ticked, so give
+    // the user a way back from a mis-tap.
+    if (value && _hideCompleted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('"${entry.task.title}" completed'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                await setTaskCompleted(id, false);
+                if (mounted) context.read<DataRefresh>().bump();
+              },
+            ),
+          ),
+        );
+    }
   }
 
   Future<void> _openTask(TaskWithCourse entry) async {

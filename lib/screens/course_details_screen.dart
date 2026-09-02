@@ -155,15 +155,11 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
     _notifyChanged();
   }
 
+  /// Deletes immediately and offers Undo instead of asking first — the
+  /// less-interruptive pattern now that tasks can be swiped away.
   Future<void> _deleteTask(Task task) async {
     final id = task.id;
     if (id == null) return;
-
-    final confirmed = await _confirm(
-      title: 'Delete task',
-      message: 'Delete "${task.title}"?',
-    );
-    if (!confirmed) return;
 
     await deleteTaskById(id);
     await NotificationService.instance.cancelForTask(id);
@@ -171,9 +167,40 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
     _notifyChanged();
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Deleted "${task.title}"')),
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('Deleted "${task.title}"'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () => _restoreTask(task),
+          ),
+        ),
+      );
+  }
+
+  /// Re-inserts a just-deleted task (with a fresh id) and re-arms its reminder.
+  Future<void> _restoreTask(Task task) async {
+    final newId = await insertTask(
+      Task(
+        courseId: task.courseId,
+        title: task.title,
+        type: task.type,
+        dueDateMillis: task.dueDateMillis,
+        priority: task.priority,
+        isCompleted: task.isCompleted,
+        notes: task.notes,
+        reminderMinutesBefore: task.reminderMinutesBefore,
+        completedAtMillis: task.completedAtMillis,
+      ),
     );
+    await NotificationService.instance.scheduleForTask(
+      task.copyWith(id: newId),
+      courseCode: widget.course.code,
+    );
+    await _loadAll();
+    _notifyChanged();
   }
 
   List<Task> _visibleTasks() {

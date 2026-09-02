@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_refresh.dart';
 import '../providers/settings_provider.dart';
+import '../providers/shell_tabs.dart';
 import '../services/notification_service.dart';
 import 'agenda_screen.dart';
 import 'ai_assistant_screen.dart';
@@ -21,7 +22,6 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  int _index = 0;
 
   static const _pages = <Widget>[
     DashboardScreen(),
@@ -65,11 +65,15 @@ class _MainShellState extends State<MainShell> {
     // (and therefore the visible tab).
     context.watch<DataRefresh>();
 
+    // The tab index lives in a provider so any screen can deep-link to a tab
+    // (e.g. dashboard stat cards jumping to a pre-filtered Agenda).
+    final tabs = context.watch<ShellTabs>();
+
     return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: IndexedStack(index: tabs.index, children: _pages),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        selectedIndex: tabs.index,
+        onDestinationSelected: tabs.go,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),

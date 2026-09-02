@@ -338,23 +338,28 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
 
+    // Read before disposing; the controllers must be released on every path,
+    // including cancel (early returns used to leak them).
+    final fullName = nameCtrl.text;
+    final universityName = uniCtrl.text;
+    final country = countryCtrl.text;
+    nameCtrl.dispose();
+    uniCtrl.dispose();
+    countryCtrl.dispose();
+
     if (saved != true) return;
     if (!context.mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
     final error = await auth.updateProfile(
-      fullName: nameCtrl.text,
-      universityName: uniCtrl.text,
-      country: countryCtrl.text,
+      fullName: fullName,
+      universityName: universityName,
+      country: country,
     );
 
     messenger.showSnackBar(
       SnackBar(content: Text(error ?? 'Profile updated')),
     );
-
-    nameCtrl.dispose();
-    uniCtrl.dispose();
-    countryCtrl.dispose();
   }
 
   Future<void> _changePassword(BuildContext context) async {
@@ -400,21 +405,24 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
 
+    // Same pattern as _editProfile: release the controllers on every path.
+    final currentPassword = currentCtrl.text;
+    final newPassword = newCtrl.text;
+    currentCtrl.dispose();
+    newCtrl.dispose();
+
     if (saved != true) return;
     if (!context.mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
     final error = await auth.updatePassword(
-      currentPassword: currentCtrl.text,
-      newPassword: newCtrl.text,
+      currentPassword: currentPassword,
+      newPassword: newPassword,
     );
 
     messenger.showSnackBar(
       SnackBar(content: Text(error ?? 'Password updated')),
     );
-
-    currentCtrl.dispose();
-    newCtrl.dispose();
   }
 
   Future<void> _confirmLogout(BuildContext context) async {

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/agenda_range.dart';
 import '../core/app_date.dart';
 import '../core/app_theme.dart';
 import '../db/course_storage.dart';
 import '../db/task_storage.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_refresh.dart';
+import '../providers/shell_tabs.dart';
 import '../widgets/common.dart';
 import '../widgets/task_tile.dart';
 import 'course_details_screen.dart';
@@ -283,11 +285,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _statGrid(_DashboardSnapshot data) {
+    final tabs = context.read<ShellTabs>();
+
+    // Every card is a shortcut into the view that explains its number.
     final items = [
-      _Stat('Courses', data.courses, Icons.school, AppTheme.seed),
-      _Stat('Due today', data.dueToday, Icons.today, AppTheme.medium),
-      _Stat('Overdue', data.overdue, Icons.warning_amber, AppTheme.high),
-      _Stat('Completed', data.completed, Icons.check_circle, AppTheme.low),
+      _Stat(
+        'Courses',
+        data.courses,
+        Icons.school,
+        AppTheme.seed,
+        () => tabs.go(ShellTabs.courses),
+      ),
+      _Stat(
+        'Due today',
+        data.dueToday,
+        Icons.today,
+        AppTheme.medium,
+        () => tabs.go(ShellTabs.agenda, agendaRange: AgendaRange.today),
+      ),
+      _Stat(
+        'Overdue',
+        data.overdue,
+        Icons.warning_amber,
+        AppTheme.high,
+        () => tabs.go(ShellTabs.agenda, agendaRange: AgendaRange.overdue),
+      ),
+      _Stat(
+        'Completed',
+        data.completed,
+        Icons.check_circle,
+        AppTheme.low,
+        () => tabs.go(ShellTabs.stats),
+      ),
     ];
 
     return LayoutBuilder(
@@ -312,14 +341,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _statCard(_Stat stat) {
     final surfaces = AppSurfaces.of(context);
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: surfaces.card,
+    return Material(
+      color: surfaces.card,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: surfaces.outline),
-      ),
-      child: Column(
+        onTap: stat.onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: surfaces.outline),
+          ),
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
@@ -344,6 +378,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
         ],
+          ),
+        ),
       ),
     );
   }
@@ -420,6 +456,7 @@ class _Stat {
   final int value;
   final IconData icon;
   final Color color;
+  final VoidCallback onTap;
 
-  const _Stat(this.label, this.value, this.icon, this.color);
+  const _Stat(this.label, this.value, this.icon, this.color, this.onTap);
 }

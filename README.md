@@ -10,9 +10,9 @@ the assistant.
 | Area | What you get |
 | --- | --- |
 | **Accounts** | Sign up / sign in with a university ID. Passwords are stored as salted SHA-256 hashes, and the session is remembered between launches. Each account only sees its own data. |
-| **Dashboard** | Greeting, counters (courses, due today, overdue, completed), overall progress, "needs attention" and upcoming task lists. |
+| **Dashboard** | Greeting, tappable counters that deep-link into the matching view, overall progress, "needs attention" and upcoming task lists. |
 | **Courses** | Add, edit, delete, colour-code. Search by name/code/instructor, filter by semester, sort in either direction, per-course completion bar. |
-| **Tasks** | Title, type, priority, **due date *and* time**, notes, and an optional reminder. Filter (all / pending / completed / overdue / today / this week), search and sort. |
+| **Tasks** | Title, type, priority, **due date *and* time**, notes, and an optional reminder. Filter, search and sort. Swipe right to complete or reopen, swipe left to delete — with Undo. |
 | **Agenda** | Every task across every course, grouped by day, with range chips (today, next 7 days, upcoming, overdue, all) and search. |
 | **Resources** | Notes, links and files per course. Links open in the browser, files open in their default app, and files can be chosen with a file picker. |
 | **Reminders** | Local notifications a chosen interval before a task is due, re-armed on launch and after a reboot. Android/iOS/macOS. |

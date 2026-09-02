@@ -142,6 +142,62 @@ void main() {
       expect(find.text('Task 0'), findsOneWidget);
     });
 
+    testWidgets('swiping right toggles completion', (tester) async {
+      bool? toggled;
+      final task = Task(
+        id: 3,
+        courseId: 1,
+        title: 'Swipe me',
+        type: 'Assignment',
+        dueDateMillis: DateTime.now().millisecondsSinceEpoch,
+        priority: 'Low',
+        isCompleted: 0,
+      );
+
+      await tester.pumpWidget(
+        wrap(TaskTile(task: task, onToggle: (v) => toggled = v)),
+      );
+
+      await tester.drag(find.text('Swipe me'), const Offset(400, 0));
+      await tester.pumpAndSettle();
+
+      expect(toggled, isTrue);
+    });
+
+    testWidgets('swiping left reports deletion without removing the row', (
+      tester,
+    ) async {
+      var deleted = false;
+      final task = Task(
+        id: 4,
+        courseId: 1,
+        title: 'Swipe away',
+        type: 'Assignment',
+        dueDateMillis: DateTime.now().millisecondsSinceEpoch,
+        priority: 'Low',
+        isCompleted: 0,
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          TaskTile(
+            task: task,
+            onToggle: (_) {},
+            onDelete: () => deleted = true,
+          ),
+        ),
+      );
+
+      await tester.drag(find.text('Swipe away'), const Offset(-400, 0));
+      await tester.pumpAndSettle();
+
+      expect(deleted, isTrue);
+      // The list reloads asynchronously, so the tile itself must survive the
+      // gesture (a dismissed-but-present Dismissible throws).
+      expect(find.text('Swipe away'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('ticking the checkbox reports completion', (tester) async {
       bool? reported;
       final task = Task(

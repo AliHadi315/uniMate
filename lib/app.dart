@@ -5,6 +5,7 @@ import 'core/app_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/data_refresh.dart';
 import 'providers/settings_provider.dart';
+import 'providers/shell_tabs.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
 import 'screens/main_shell.dart';
@@ -20,6 +21,7 @@ class UniMateApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()..restoreSession()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()..load()),
         ChangeNotifierProvider(create: (_) => DataRefresh()),
+        ChangeNotifierProvider(create: (_) => ShellTabs()),
       ],
       child: Consumer<SettingsProvider>(
         builder: (context, settings, _) {
