@@ -228,7 +228,7 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 24),
               Center(
                 child: Text(
-                  'UniMate • version 0.3.0',
+                  'UniMate • version 0.4.0',
                   style: TextStyle(
                     fontSize: 11,
                     color: scheme.onSurfaceVariant,

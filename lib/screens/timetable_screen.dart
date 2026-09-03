@@ -116,14 +116,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Timetable'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+        title: const Text('Timetable'),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openSessionDialog(),

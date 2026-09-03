@@ -5,6 +5,7 @@ import '../core/app_date.dart';
 import '../core/app_theme.dart';
 import '../db/course_storage.dart';
 import '../db/grade_storage.dart';
+import '../db/study_session_storage.dart';
 import '../db/task_storage.dart';
 import '../models/course.dart';
 import '../models/grade.dart';
@@ -54,6 +55,8 @@ class _StatsSnapshot {
   final Map<String, int> byPriority;
   final List<_CourseProgress> perCourse;
   final List<_CourseGrade> courseGrades;
+  final List<int> studyWeekly;
+  final Map<String, int> studyByCourse;
 
   const _StatsSnapshot({
     required this.totalTasks,
@@ -64,6 +67,8 @@ class _StatsSnapshot {
     required this.byPriority,
     required this.perCourse,
     required this.courseGrades,
+    required this.studyWeekly,
+    required this.studyByCourse,
   });
 
   /// Mean of the per-course averages — the closest honest figure without
@@ -140,6 +145,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       byPriority: await pendingByPriority(userId),
       perCourse: perCourse,
       courseGrades: courseGrades,
+      studyWeekly: await studyMinutesPerDay(userId),
+      studyByCourse: await studyMinutesByCourse(userId),
     );
   }
 
@@ -151,16 +158,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Statistics'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: _refresh,
-          ),
-        ],
-      ),
+      // The screen reloads itself on every data change; pull down to force a
+      // manual refresh.
+      appBar: AppBar(title: const Text('Statistics')),
       body: FutureBuilder<_StatsSnapshot>(
         future: _future,
         builder: (ctx, snap) {
@@ -197,6 +197,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 const SizedBox(height: 16),
                 _weeklyCard(data),
                 const SizedBox(height: 16),
+                if (data.studyWeekly.any((m) => m > 0)) ...[
+                  _studyCard(data),
+                  const SizedBox(height: 16),
+                ],
                 _priorityCard(data),
                 const SizedBox(height: 16),
                 if (data.courseGrades.isNotEmpty) ...[
@@ -362,6 +366,69 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           ),
           const SizedBox(height: 14),
           DonutChart(segments: segments, centerLabel: 'open'),
+        ],
+      ),
+    );
+  }
+
+  Widget _studyCard(_StatsSnapshot data) {
+    final scheme = Theme.of(context).colorScheme;
+    final today = DateTime.now();
+    final labels = List.generate(data.studyWeekly.length, (i) {
+      final day = today.subtract(
+        Duration(days: data.studyWeekly.length - 1 - i),
+      );
+      return AppDate.formatWeekday(day).substring(0, 2);
+    });
+    final total = data.studyWeekly.fold<int>(0, (a, b) => a + b);
+
+    String hours(int minutes) => minutes >= 60
+        ? '${(minutes / 60).toStringAsFixed(1)} h'
+        : '$minutes min';
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Focused study this week',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              Text(
+                hours(total),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: scheme.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          MiniBarChart(
+            values: data.studyWeekly,
+            labels: labels,
+            color: AppTheme.low,
+          ),
+          if (data.studyByCourse.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: data.studyByCourse.entries
+                  .map(
+                    (e) => Pill(
+                      text: '${e.key} • ${hours(e.value)}',
+                      color: scheme.primary,
+                      dense: true,
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
         ],
       ),
     );

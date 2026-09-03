@@ -621,14 +621,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
               overflow: TextOverflow.ellipsis,
             ),
           ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _loadAll,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: _accent,

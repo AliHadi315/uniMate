@@ -5,7 +5,8 @@ class DbTables {
   /// v2 users
   /// v3 per-user courses, salted passwords, task notes + reminders, chat history
   /// v4 class timetable, grades, recurring tasks, attachments, archiving
-  static const dbVersion = 4;
+  /// v5 focus timer study sessions
+  static const dbVersion = 5;
 
   static const courses = 'courses';
   static const tasks = 'tasks';
@@ -15,6 +16,7 @@ class DbTables {
   static const chatMessages = 'chat_messages';
   static const classSessions = 'class_sessions';
   static const grades = 'grades';
+  static const studySessions = 'study_sessions';
 
   static const createUsers =
       '''
@@ -128,6 +130,21 @@ class DbTables {
   );
   ''';
 
+  /// Minutes of focused study recorded by the timer. courseId is nullable —
+  /// a session does not have to belong to a course. userId is stored directly
+  /// so course-less sessions still have an owner.
+  static const createStudySessions =
+      '''
+  CREATE TABLE IF NOT EXISTS $studySessions(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    courseId INTEGER,
+    startedAtMillis INTEGER NOT NULL,
+    minutes INTEGER NOT NULL,
+    FOREIGN KEY(courseId) REFERENCES $courses(id) ON DELETE SET NULL
+  );
+  ''';
+
   /// Indexes for the lookups the app performs on every screen.
   static const createIndexes = <String>[
     'CREATE INDEX IF NOT EXISTS idx_courses_user ON $courses(userId);',
@@ -137,5 +154,6 @@ class DbTables {
     'CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON $chatMessages(sessionId);',
     'CREATE INDEX IF NOT EXISTS idx_class_sessions_course ON $classSessions(courseId);',
     'CREATE INDEX IF NOT EXISTS idx_grades_course ON $grades(courseId);',
+    'CREATE INDEX IF NOT EXISTS idx_study_sessions_user ON $studySessions(userId);',
   ];
 }

@@ -16,6 +16,7 @@ import '../widgets/task_tile.dart';
 import 'course_details_screen.dart';
 import 'settings_screen.dart';
 import 'task_form_screen.dart';
+import 'focus_timer_screen.dart';
 import 'timetable_screen.dart';
 
 /// Overview screen: at-a-glance counters, progress and what is due next.
@@ -155,9 +156,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
-            onPressed: _refresh,
+            icon: const Icon(Icons.timer_outlined),
+            tooltip: 'Focus timer',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const FocusTimerScreen()),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.only(right: 12),

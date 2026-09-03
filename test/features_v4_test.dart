@@ -7,6 +7,8 @@ import 'package:unimate/db/class_session_storage.dart';
 import 'package:unimate/db/course_storage.dart';
 import 'package:unimate/db/db_provider.dart';
 import 'package:unimate/db/grade_storage.dart';
+import 'package:unimate/db/study_session_storage.dart';
+import 'package:unimate/db/tables.dart';
 import 'package:unimate/db/task_storage.dart';
 import 'package:unimate/db/user_storage.dart';
 import 'package:unimate/models/class_session.dart';
@@ -282,6 +284,34 @@ void main() {
       expect((await loadTaskById(id))!.completed, isFalse);
     });
 
+    test('joined queries carry recurrence and attachment through', () async {
+      final userId = await createUser('S9');
+      final courseId = await createCourse(userId, 'CS900');
+      await insertTask(
+        Task(
+          courseId: courseId,
+          title: 'Joined fields',
+          type: 'Reading',
+          dueDateMillis: DateTime.now()
+              .add(const Duration(days: 1))
+              .millisecondsSinceEpoch,
+          priority: 'Low',
+          isCompleted: 0,
+          recurrenceDays: 7,
+          attachmentPath: '/tmp/notes.pdf',
+        ),
+      );
+
+      // Regression: the joined column list once omitted the v4 columns, so a
+      // repeating task completed from the agenda lost its recurrence.
+      final joined = (await loadAllTasks(userId)).single.task;
+      expect(joined.recurrenceDays, 7);
+      expect(joined.attachmentPath, '/tmp/notes.pdf');
+
+      final upcoming = (await loadUpcomingTasks(userId)).single.task;
+      expect(upcoming.recurrenceDays, 7);
+    });
+
     test('completing a one-off task spawns nothing', () async {
       final userId = await createUser('S1');
       final courseId = await createCourse(userId, 'CS101');
@@ -506,6 +536,67 @@ Here is your plan for the week.
     });
   });
 
+  group('study sessions (v5)', () {
+    test('daily buckets and per-course totals', () async {
+      final userId = await createUser('S1');
+      final other = await createUser('S2');
+      final courseId = await createCourse(userId, 'CS101');
+      final now = DateTime.now();
+
+      await insertStudySession(
+        userId: userId,
+        courseId: courseId,
+        startedAt: now.subtract(const Duration(days: 1)),
+        minutes: 25,
+      );
+      await insertStudySession(
+        userId: userId,
+        courseId: courseId,
+        startedAt: now,
+        minutes: 45,
+      );
+      await insertStudySession(
+        userId: userId,
+        courseId: null, // general study
+        startedAt: now,
+        minutes: 15,
+      );
+      await insertStudySession(
+        userId: other,
+        courseId: null,
+        startedAt: now,
+        minutes: 99,
+      );
+
+      final week = await studyMinutesPerDay(userId);
+      expect(week.length, 7);
+      expect(week.last, 60); // today: 45 + 15
+      expect(week[5], 25); // yesterday
+
+      final byCourse = await studyMinutesByCourse(userId);
+      expect(byCourse['CS101'], 70);
+      expect(byCourse['General'], 15);
+      expect(byCourse.containsValue(99), isFalse); // other user's time
+    });
+
+    test('deleting a course keeps its recorded study time as General',
+        () async {
+      final userId = await createUser('S1');
+      final courseId = await createCourse(userId, 'CS101');
+
+      await insertStudySession(
+        userId: userId,
+        courseId: courseId,
+        startedAt: DateTime.now(),
+        minutes: 30,
+      );
+      await deleteCourseById(courseId);
+
+      final byCourse = await studyMinutesByCourse(userId);
+      expect(byCourse['General'], 30);
+    });
+  });
+
   group('migration to v4', () {
     test('a v3 database gains the new tables and columns', () async {
       final path = DatabaseProvider.debugDbPathOverride!;
@@ -573,7 +664,7 @@ Here is your plan for the week.
       await legacy.close();
 
       final db = await DatabaseProvider.getDatabase();
-      expect(await db.getVersion(), 4);
+      expect(await db.getVersion(), DbTables.dbVersion);
 
       final taskCols = await db.rawQuery('PRAGMA table_info(tasks)');
       expect(taskCols.where((c) => c['name'] == 'recurrenceDays').length, 1);
@@ -588,3 +679,4 @@ Here is your plan for the week.
     });
   });
 }
+

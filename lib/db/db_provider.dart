@@ -62,6 +62,7 @@ class DatabaseProvider {
         await db.execute(DbTables.createChatMessages);
         await db.execute(DbTables.createClassSessions);
         await db.execute(DbTables.createGrades);
+        await db.execute(DbTables.createStudySessions);
         for (final index in DbTables.createIndexes) {
           await db.execute(index);
         }
@@ -141,6 +142,10 @@ class DatabaseProvider {
         'archived',
         'INTEGER NOT NULL DEFAULT 0',
       );
+    }
+
+    if (oldVersion < 5) {
+      await db.execute(DbTables.createStudySessions);
     }
 
     for (final index in DbTables.createIndexes) {

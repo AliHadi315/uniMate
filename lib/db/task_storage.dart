@@ -13,12 +13,16 @@ class TaskWithCourse {
   const TaskWithCourse({required this.task, required this.course});
 }
 
+// Every Task column must appear here: a missing one silently reads back as
+// null through the joined views, which once cost recurring tasks their
+// recurrence when completed from the agenda.
 const _taskColumns =
     't.id AS id, t.courseId AS courseId, t.title AS title, t.type AS type, '
     't.dueDateMillis AS dueDateMillis, t.priority AS priority, '
     't.isCompleted AS isCompleted, t.notes AS notes, '
     't.reminderMinutesBefore AS reminderMinutesBefore, '
-    't.completedAtMillis AS completedAtMillis';
+    't.completedAtMillis AS completedAtMillis, '
+    't.recurrenceDays AS recurrenceDays, t.attachmentPath AS attachmentPath';
 
 const _courseColumns =
     'c.id AS c_id, c.userId AS c_userId, c.name AS c_name, c.code AS c_code, '

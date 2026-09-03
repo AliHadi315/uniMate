@@ -260,11 +260,6 @@ class _CoursesScreenState extends State<CoursesScreen> {
                           : Icons.archive_outlined,
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Refresh',
-                    onPressed: _load,
-                    icon: const Icon(Icons.refresh),
-                  ),
                 ],
               ),
               Text(

@@ -200,11 +200,6 @@ class _AgendaScreenState extends State<AgendaScreen> {
                       ),
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Refresh',
-                    onPressed: _load,
-                    icon: const Icon(Icons.refresh),
-                  ),
                 ],
               ),
               Text(
