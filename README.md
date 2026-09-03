@@ -1,5 +1,7 @@
 # UniMate 🎓
 
+A project by **Ali Hadi Meselmani** and **Ali Rammal**.
+
 **UniMate is a study planner for university students, built with Flutter.**
 It keeps a whole semester in one place: your courses, every assignment and
 exam, your weekly class timetable, your grades, and how much focused study
@@ -130,3 +132,8 @@ path is covered by tests.
 | 3 | per-account data, salted password hashes, task notes + reminders, chat history |
 | 4 | `class_sessions` + `grades`, recurring tasks, attachments, course archiving |
 | 5 | `study_sessions` (focus timer) |
+
+## Authors
+
+- **Ali Hadi Meselmani**
+- **Ali Rammal**
